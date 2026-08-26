@@ -1,6 +1,6 @@
 # dot-config
 
-Personal configs. Private.
+Personal configs.
 
 Clone lives at `~/projects/dot-config`. Live paths are symlinks into this repo.
 
