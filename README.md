@@ -1,75 +1,44 @@
-# ~/.ai — shared agents, skills, commands, workflows
+# dot-config
 
-Single source of truth for coding-agent assets across platforms.
-Platform config dirs symlink into this tree.
+Personal configs. Private.
 
-## Layout
+Clone lives at `~/projects/dot-config`. Live paths are symlinks into this repo.
 
-| Path | Contents |
-|------|----------|
-| `agents/` | Specialist agent prompts (`*.md`) |
-| `skills/` | Shared agent skills (`*/SKILL.md`) — Claude / Grok / `.agents` |
-| `oc_skills/` | OpenCode-only skills (`*/SKILL.md`) — skill tool discovery |
-| `commands/` | OpenCode slash commands (`*.md`) — user-invoked via `/name` |
-| `command-assets/` | Extra assets for commands (scripts often symlink into `oc_skills`) |
-| `workflows/` | Grok workflows (`*.rhai`) |
-| `AGENTS.md` | Personal coding rules (OpenCode) |
+| Folder | Live path |
+|--------|-----------|
+| `ai/` | `~/.ai` |
+| `wezterm/` | `~/.wezterm.lua` |
+| `opencode/` | files under `~/.config/opencode/` |
 
-## Skills vs commands (same body, different format)
+## `ai/`
 
-Many workflows exist as **both** a skill and a command. Keep the **body identical**; only frontmatter differs.
+Shared agents, skills, commands, workflows. Platform dirs symlink into `~/.ai`:
 
-| | Skill (`oc_skills/<name>/SKILL.md`) | Command (`commands/<name>.md`) |
-|--|-------------------------------------|--------------------------------|
-| Invoked by | Agent `skill` tool (on-demand) | You type `/name` |
-| Frontmatter | `name` + `description` (required) | `description` (required); optional `agent` / `model` / `subtask` |
-| Layout | Directory + `SKILL.md` (+ `scripts/` / `references/`) | Flat markdown file |
-| Scripts | Live next to `SKILL.md` | Prefer `oc_skills/<name>/scripts` (or `command-assets/`) |
-
-Example — skill:
-
-```markdown
----
-name: monorepo-worktree
-description: ...
----
-
-# body...
-```
-
-Example — command (same body):
-
-```markdown
----
-description: ...
----
-
-# body...
-```
-
-`skills/` stays for **Claude / Grok / agents** discovery. Do **not** put OpenCode-only packages there if the same name also lives in `oc_skills/` — OpenCode also scans `~/.claude/skills` and `~/.agents/skills`, so duplicates collide.
-
-## Platform links
-
-- `~/.config/opencode/skills` → `~/.ai/oc_skills`
-- `~/.config/opencode/{agents,command,AGENTS.md,workflows-from-grok}` → matching `~/.ai/*`
-- `~/.grok/{skills,agents,workflows}` → `~/.ai/{skills,agents,workflows}`
-- `~/.claude/{skills,agents}` → `~/.ai/{skills,agents}`
+- `~/.config/opencode/{agents,command,skills,AGENTS.md}` → `~/.ai`
+- `~/.claude/{skills,agents}` → `~/.ai`
+- `~/.grok/{skills,agents,workflows}` → `~/.ai`
 - `~/.agents/skills` → `~/.ai/skills`
 
-Not shared (platform runtime): auth, sessions, caches, logs, `opencode.json`, `config.toml`, `settings.json`.
+See `ai/README.md`.
 
-## Edit here
+## `wezterm/`
+
+`wezterm.lua` — WezTerm reads `~/.wezterm.lua`.
+
+## `opencode/`
+
+Tracked: `opencode.json`, `cli.json`, `tui.json`, `themes/`, `plugins/`, `package.json`.
+
+Not tracked (runtime / secrets): `service.json`, `node_modules/`, sessions, auth.
+
+## Local wiring
 
 ```bash
-# OpenCode skill (agent-loaded)
-$EDITOR ~/.ai/oc_skills/monorepo-worktree/SKILL.md
-
-# OpenCode command (slash /monorepo-worktree) — keep body in sync with skill
-$EDITOR ~/.ai/commands/monorepo-worktree.md
-
-# Shared Claude/Grok skill
-$EDITOR ~/.ai/skills/pr-review/SKILL.md
+ln -s ~/projects/dot-config/ai ~/.ai
+ln -s ~/projects/dot-config/wezterm/wezterm.lua ~/.wezterm.lua
+ln -s ~/projects/dot-config/opencode/opencode.json ~/.config/opencode/opencode.json
+ln -s ~/projects/dot-config/opencode/cli.json ~/.config/opencode/cli.json
+ln -s ~/projects/dot-config/opencode/tui.json ~/.config/opencode/tui.json
+ln -s ~/projects/dot-config/opencode/package.json ~/.config/opencode/package.json
+ln -s ~/projects/dot-config/opencode/themes ~/.config/opencode/themes
 ```
-
-After **command** edits, restart OpenCode (loaded at startup). Skills are picked up on next skill load.

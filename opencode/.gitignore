@@ -1,0 +1,7 @@
+node_modules/
+service.json
+*.bak
+*.pre-dot-config
+.migration-backup*
+package-lock.json
+bun.lock
