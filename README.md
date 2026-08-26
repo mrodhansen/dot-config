@@ -9,6 +9,7 @@ Clone lives at `~/projects/dot-config`. Live paths are symlinks into this repo.
 | `ai/` | `~/.ai` |
 | `wezterm/` | `~/.wezterm.lua` |
 | `opencode/` | files under `~/.config/opencode/` |
+| `hypr/` | `~/.config/hypr` (Arch) |
 
 ## `ai/`
 
@@ -31,6 +32,10 @@ Tracked: `opencode.json`, `cli.json`, `tui.json`, `themes/`, `plugins/`, `packag
 
 Not tracked (runtime / secrets): `service.json`, `node_modules/`, sessions, auth.
 
+## `hypr/`
+
+Hyprland + hyprpaper configs and Arch install scripts. See `hypr/README.md`.
+
 ## Local wiring
 
 ```bash
@@ -41,4 +46,5 @@ ln -s ~/projects/dot-config/opencode/cli.json ~/.config/opencode/cli.json
 ln -s ~/projects/dot-config/opencode/tui.json ~/.config/opencode/tui.json
 ln -s ~/projects/dot-config/opencode/package.json ~/.config/opencode/package.json
 ln -s ~/projects/dot-config/opencode/themes ~/.config/opencode/themes
+ln -s ~/projects/dot-config/hypr ~/.config/hypr
 ```

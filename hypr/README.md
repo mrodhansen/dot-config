@@ -1,7 +1,8 @@
 # Hyprland Config
 
-My personal Hyprland setup for Arch Linux. Drops into `~/.config/hypr/` and ships
-two install scripts so you can bootstrap a fresh machine in one command.
+Folder in [dot-config](https://github.com/mrodhansen/dot-config). Live path on
+Arch is `~/.config/hypr` (symlink). Ships two install scripts so you can
+bootstrap a fresh machine in one command.
 
 ## What's in here
 
@@ -15,10 +16,12 @@ two install scripts so you can bootstrap a fresh machine in one command.
 
 ## Install
 
-Clone into `~/.config/hypr` (back up anything that's already there):
+Clone `dot-config` and symlink this folder to `~/.config/hypr` (back up
+anything that's already there):
 
 ```sh
-git clone https://github.com/mrodhansen/hyprland.git ~/.config/hypr
+git clone https://github.com/mrodhansen/dot-config.git ~/projects/dot-config
+ln -s ~/projects/dot-config/hypr ~/.config/hypr
 cd ~/.config/hypr
 ```
 
