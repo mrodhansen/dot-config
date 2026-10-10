@@ -49,6 +49,7 @@ These rules MUST hold for every run. If you cannot satisfy them, stop and tell t
 6. **Architecture sense-check (S6) is advisory only.** S6 never produces accept/reject/defer items and **must never** cause the main agent to re-architect or redo the feature mid-loop. Persist notes quietly; surface them to the user only in Phase 3, and only if S6 has a clear concern.
 7. **Accepted changes are implemented before the next round.** The next round's specialists read the updated code. Earlier accepted feedback is reflected in the code itself, not in side text.
 8. **All artifacts are persisted.** Plan, per-round comments, per-round decisions, architecture notes, and final summary all live in `.peer-review/` so the user can audit the whole loop.
+9. **Never stall the loop on a missing reviewer.** A specialist that errors, times out, hangs, or never returns a usable review is a failure. Retry that specialty once, then continue. Do not sit idle waiting for a notification that may never come.
 
 ---
 
@@ -674,13 +675,16 @@ Then output a short message to the user pointing them at `.peer-review/summary.m
 - Do not stream every specialist comment to the user as it arrives — the files are the record. Give the user a one-line status per phase ("plan + implementation done", "round 1: 8 specialists done, 4 comments — 2 accepted, 1 rejected, 1 deferred", etc.). Do not surface architecture notes mid-loop.
 - Do not ask the user for approval between rounds. The loop is autonomous by design.
 - If the user interrupts mid-loop, the state in `.peer-review/` is enough to resume — say so.
+- If a specialist batch is incomplete, merge what you have and proceed. Never leave the user waiting on a hung reviewer.
 - Never rewrite or re-architect the feature because of S6. Architecture sense-check is for the user's judgment at the end only.
 
 ---
 
 ## Error Recovery
 
-- **One specialist fails**: re-spawn that specialty only once. If it fails twice, log `reviewer-failed (<specialty>)` in the merged comments file and continue the round.
+- **Spawn specialists as one foreground parallel batch** so the batch returns together. Do **not** background them and wait for a later notify. Background + “do not poll” is how this loop stalls.
+- **One specialist fails** (error, empty output, capacity/timeout, or never returns): retry **that specialty only**, once, immediately. If the retry also fails or does not return a usable review, log `reviewer-failed (<specialty>)` as a `major` comment and **continue the round with whoever finished**.
+- **Silent / hung specialist**: treat as a failure. Do not poll. Do not wait. A missing result after the batch (or after the one retry) is enough to mark `reviewer-failed`.
 - **All specialists fail**: stop the loop and tell the user; do not invent comments.
 - **Accepted change breaks the build**: revert that specific change, flip the decision to `reject` with reasoning `"applying this broke <X>"`, continue.
 - **Specialists contradict each other**: both comments appear after merge (or dedupe if identical). Triage on merits independently.

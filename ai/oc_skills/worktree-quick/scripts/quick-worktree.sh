@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # quick-worktree.sh — Code-only git worktree for a PR or branch.
-# No env copy, no DB, no Redis, no ports, no yarn, no seed.
+# Copies .env*, then yarn install (own node_modules; husky postinstall
+# wires pre-push — do not skip yarn). Do not symlink node_modules.
+# No DB, no Redis, no port remaps, no seed, no serve.
 #
 # Usage:
 #   ./quick-worktree.sh [create] <pr|branch|url> [name]
@@ -277,6 +279,37 @@ cmd_list() {
   fi
 }
 
+# Same env files as the primary checkout, copied as-is (no port/DB rewrite —
+# this is not a second stack). Missing sources are a warning, not a failure.
+copy_env_files() {
+  local primary="$1" wt="$2"
+  copy_one_env() {
+    local src="$1" dest="$2"
+    if [[ -f "${src}" ]]; then
+      mkdir -p "$(dirname "${dest}")"
+      cp "${src}" "${dest}"
+      echo "  copied ${src#"${primary}"/}"
+    else
+      echo "  WARN: missing ${src}"
+    fi
+  }
+  copy_one_env "${primary}/.env" "${wt}/.env"
+  copy_one_env "${primary}/.env.local" "${wt}/.env.local"
+  copy_one_env "${primary}/apps/web-crm/.env.local" "${wt}/apps/web-crm/.env.local"
+  copy_one_env "${primary}/apps/web-funnel/.env.local" "${wt}/apps/web-funnel/.env.local"
+  copy_one_env "${primary}/apps/server-crm/.env.local" "${wt}/apps/server-crm/.env.local"
+}
+
+# Yarn installs a real node_modules in the worktree. Drop a leftover symlink
+# from older setup so install does not write into the primary tree.
+drop_node_modules_symlink() {
+  local dest="${1}/node_modules"
+  if [[ -L "${dest}" ]]; then
+    rm -f "${dest}"
+    echo "  removed leftover node_modules symlink"
+  fi
+}
+
 write_marker() {
   local path="$1" gitdir
   gitdir="$(git -C "${path}" rev-parse --path-format=absolute --git-dir)"
@@ -400,8 +433,14 @@ cmd_create() {
   git -C "${PRIMARY}" worktree add -b "${BRANCH_NAME}" "${wt_path}" "${RESOLVED_SHA}"
   write_marker "${wt_path}"
 
+  echo "Copying env from primary..."
+  copy_env_files "${PRIMARY}" "${wt_path}"
+  drop_node_modules_symlink "${wt_path}"
+  echo "yarn install (husky postinstall wires pre-push)..."
+  (cd "${wt_path}" && yarn install)
+
   echo "═══════════════════════════════════════════════════════════"
-  echo " Quick worktree (code only — no env / db / seed / serve)"
+  echo " Quick worktree (env + yarn install — no db / seed / serve)"
   echo "═══════════════════════════════════════════════════════════"
   echo "  repo:     ${PRIMARY}"
   echo "  path:     ${wt_path}"

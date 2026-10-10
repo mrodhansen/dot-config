@@ -140,6 +140,20 @@ Only use `down -v` when the user also wants the DB volume wiped.
 
 ---
 
+## OpenCode tools
+
+- Library or framework APIs: use Context7. Do not invent signatures from memory.
+- Unsure how an API is used in real projects: use `gh_grep`. Public GitHub only. This repo's patterns win over those snippets.
+
+## Model split: Haiku for babysitting (Claude Code)
+
+Work whose only job is to run steps and report back goes to a **Haiku subagent** (Agent tool, `model: "haiku"`). Examples: commit/push/PR, waiting on pre-push hooks or CI, worktree create/destroy, `yarn install`, seeds, Docker rebuilds. The main session stays on the session model for planning, code, and diagnosis.
+
+- The subagent runs the steps and returns exit status, paths/URLs/PR link, and failure output verbatim. It does **not** fix code; on a code failure it stops and returns the error.
+- The main model fixes the code, then re-delegates the mechanical retry.
+- Pass the subagent what only you know (why the change exists, target branch/slot) so its commit/PR text is right.
+- If you *are* that subagent, do the steps; don't delegate again.
+
 ## Communication
 
 - Concise. Diffs and verification steps over essays.

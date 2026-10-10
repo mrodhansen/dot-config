@@ -1,17 +1,29 @@
 ---
 name: pr
-description: Automates the full PR workflow - runs all typechecks, formats code, creates a commit with a descriptive message, pushes to remote, and creates a PR if one doesn't exist. Use when user says "/pr", "create pr", "ship it", or "prepare pr".
+description: Commits, pushes the feature branch (never main; never --no-verify), and creates or updates the PR. If the repo pre-push hook fails, fix those errors, commit, and retry the push. Use when user says "/pr", "create pr", "ship it", or "prepare pr".
 ---
 
 # /pr - Automated PR Workflow
 
 Automates the complete pull request workflow in a single command.
 
+Quality checks (format, lint, typecheck, test, build) run in the repo **pre-push** hook (`.husky/pre-push` — there is no pre-commit hook). Prisma stays in GitHub Actions only. Do **not** run those checks in this skill before push. If the hook fails, fix the reported errors, commit, and push again. Never `--no-verify`.
+
+## Model split (Claude Code)
+
+Steps 1–7 are babysitting. Run them in a **Haiku subagent** (Agent tool, `model: "haiku"`): tell it to follow `~/.ai/skills/pr/SKILL.md`, and pass a 1–3 line summary of what changed and why (you have that context; it doesn't) so the commit and PR text are right. It returns the branch, commit(s), push result, and PR URL.
+
+On a `lint` / `typecheck` / `test` / `build` hook failure the subagent stops and returns the errors. **You** (session model) fix the code, then re-delegate commit + push. Same 3-loop cap.
+
+If you **are** that subagent, skip this section and run the steps directly — do not delegate again.
+
 ## CRITICAL SAFETY RULE
 
 **NEVER push directly to main or master. ALWAYS create a feature branch first.**
 
 This is non-negotiable. If on main/master, you MUST create a new branch before proceeding.
+
+**NEVER `git push --no-verify`.** That skips the CI gate.
 
 ## Workflow Steps
 
@@ -41,61 +53,10 @@ git diff --stat
 ```
 
 - If working tree is clean and up-to-date with remote, check if PR exists
-- If there are changes, proceed to typecheck
+- If there are changes, proceed to commit
+- Do **not** run typecheck, format, lint, test, or build here — pre-push is the gate
 
-### Step 3: Run All Typechecks
-
-Detect the project type and run appropriate typecheck:
-
-**For NX monorepos:**
-```bash
-npx nx run-many --target=typecheck --all
-```
-
-**For standard TypeScript projects:**
-```bash
-npx tsc --noEmit
-```
-
-**For projects with a typecheck script:**
-```bash
-npm run typecheck
-# or
-yarn typecheck
-```
-
-**If typecheck fails:** Stop and report the errors. Do NOT proceed.
-
-### Step 4: Format Code
-
-Detect and run the appropriate formatter:
-
-**For NX monorepos:**
-```bash
-npx nx format:write
-```
-
-**For projects with Prettier:**
-```bash
-npx prettier --write .
-```
-
-**For projects with a format script:**
-```bash
-npm run format
-# or
-yarn format
-```
-
-### Step 5: Check for Changes After Formatting
-
-```bash
-git status
-```
-
-If there are changes (from formatting), they need to be committed.
-
-### Step 6: Stage and Commit
+### Step 3: Stage and Commit
 
 **Get context for commit message:**
 ```bash
@@ -129,7 +90,7 @@ For substantive changes, write a descriptive message explaining what and why.
 
 Do not add any `Co-Authored-By` trailer (Claude, Grok, or otherwise).
 
-### Step 7: Push to Remote (NEVER TO MAIN)
+### Step 4: Push to Remote (NEVER TO MAIN, NEVER --no-verify)
 
 **First, verify you are NOT on main/master:**
 ```bash
@@ -143,14 +104,50 @@ If on main or master, STOP and go back to Step 1.
 git push -u origin HEAD
 ```
 
-### Step 8: Check for Existing PR
+The **pre-push** hook will run format/sync, lint, typecheck, test, and build. This can take several minutes. Wait for it. Capture the full output.
+
+#### If the hook blocks the push — fix and retry (max 3 loops)
+
+Do **not** `--no-verify`. Do **not** skip to creating the PR.
+
+1. Read the hook banner and the errors above it:
+   - `CI job :` — which job failed
+   - `Command:` — exact command
+   - `Fix    :` — hint
+   - The nx / prettier / jest errors above the banner
+2. Fix the **root cause**. Job-specific:
+
+   | CI job | Fix |
+   |--------|-----|
+   | `format-and-sync (yarn install --immutable)` | `yarn install`, commit `yarn.lock` |
+   | `format-and-sync (nx sync:check)` | `yarn nx sync`, commit the result |
+   | `format-and-sync (format:check)` | `yarn nx format:write`, commit formatted files (`style: format code`) |
+   | `lint` | Fix the lint errors; do not disable rules to silence them |
+   | `typecheck` | Fix the TypeScript errors; no `any` / `@ts-ignore` to paper over |
+   | `test` | Fix implementation or tests so assertions match real behavior |
+   | `build` | Fix compile/bundle errors |
+
+3. If Docker is not running and tests need it: tell the user to start Docker, then retry the push. Do not fake a pass.
+   **Haiku subagent (see Model split):** do `format-and-sync` fixes yourself. For `lint` / `typecheck` / `test` / `build`, do **not** edit code — stop and return the hook banner + errors verbatim to the main session.
+4. If you cannot fix with confidence (ambiguous test, schema conflict, missing product decision): **stop and ask**. Wrong quiet success is worse than a blocked push.
+5. Commit the fix (conventional message, no `Co-Authored-By`):
+   ```bash
+   git add -A
+   git commit -m "fix: <what the hook failed on>"
+   ```
+6. Push again (`git push -u origin HEAD`). Still never `--no-verify`.
+7. Repeat from (1) if it fails again. **Maximum 3 fix-push loops.** After 3, stop, report every remaining error, and do not create/update the PR.
+
+Non-hook push failures (non-fast-forward, auth): rebase/merge or report. Do not treat them as hook errors.
+
+### Step 5: Check for Existing PR
 
 ```bash
 gh pr view --json url,state,body 2>/dev/null
 ```
 
-- **If no PR exists** → go to Step 9 to create one.
-- **If a PR exists and is OPEN** → do NOT just report the URL. The branch now has new work on it, so the description is stale. **Update the PR body** so it reflects the full current state of the branch, using the handoff template in Step 9:
+- **If no PR exists** → go to Step 6 to create one.
+- **If a PR exists and is OPEN** → do NOT just report the URL. The branch now has new work on it, so the description is stale. **Update the PR body** so it reflects the full current state of the branch, using the handoff template in Step 6:
   ```bash
   gh pr edit --body "$(cat <<'EOF'
   ...regenerated handoff body...
@@ -159,7 +156,7 @@ gh pr view --json url,state,body 2>/dev/null
   ```
   Fold the still-relevant parts of the existing body into the new one — don't discard context a human wrote. If the existing description is substantial and clearly hand-authored, ask before overwriting; otherwise regenerate and improve it.
 
-### Step 9: Write the PR description (create or update)
+### Step 6: Write the PR description (create or update)
 
 The PR description is a **handoff document**, not a changelog. Write it so a reviewer who has never seen this work can read it and immediately know what the PR does, why, what to scrutinize, and how it was checked — enough to jumpstart their review without asking you anything.
 
@@ -191,7 +188,8 @@ Closes #[issue-number]   <!-- only if an issue is linked -->
 [Where to focus, the riskiest change, anything non-obvious, follow-ups deliberately left out of scope, and any open questions you want the reviewer to weigh in on.]
 
 ## Verification
-[How it was checked — typecheck / tests / build, plus any manual or visual verification. Be explicit about what was NOT verified.]
+Pre-push hook (format/sync, lint, typecheck, test, build) passed on push.
+[Any extra manual or visual checks. Be explicit about what was NOT verified.]
 EOF
 )"
 ```
@@ -202,12 +200,12 @@ EOF
 - **Be honest about gaps** — unverified paths, known limitations, deferred work. A reviewer who knows the edges reviews faster.
 - **Keep it skimmable** — short prose and bullets, no filler.
 
-### Step 10: Report Result
+### Step 7: Report Result
 
 Report:
-- Whether typecheck passed
-- Whether formatting was applied
-- Commit hash and message
+- Commit hash and message (including any hook-fix commits)
+- Whether the push succeeded on the first try or after hook-fix loops (how many)
+- If still blocked: the CI job, command, and remaining errors
 - PR URL (new or existing), and whether its description was created or updated
 - Issue link (if applicable)
 
@@ -216,9 +214,9 @@ Report:
 | Error | Action |
 |-------|--------|
 | On main/master branch | STOP, create feature branch first |
-| Typecheck fails | Stop, report errors, suggest fixes |
-| Format fails | Stop, report error |
-| Push fails | Check if rebase needed, report |
+| Pre-push hook fails | Fix the reported job, commit, retry push (max 3). Never `--no-verify`. After 3, STOP and report. |
+| Hook failure you cannot fix confidently | STOP and ask. Do not paper over. |
+| Push fails (non-fast-forward) | Check if rebase/merge needed, report |
 | PR creation fails | Check gh auth, report |
 
 ## GitHub PR Comment API Reference
@@ -280,10 +278,9 @@ gh api repos/{owner}/{repo}/pulls/{pr} --jq '.head.sha'
   |-- git branch --show-current (MUST NOT be main/master)
   |-- [if main] git checkout -b <feature-branch>
   |-- git status
-  |-- typecheck (tsc/nx/project-specific)
-  |-- format (prettier/nx/project-specific)
-  |-- git add -A && git commit
-  |-- git push -u origin HEAD (NEVER main)
+  |-- git add -A && git commit (if dirty)
+  |-- git push -u origin HEAD (NEVER main, NEVER --no-verify)
+  |-- [if pre-push fails] fix → commit → push again (max 3); never skip the hook
   |-- gh pr create (new) || gh pr edit --body (existing) -- write/refresh the handoff description
   |-- Report PR URL
 ```

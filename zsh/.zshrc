@@ -9,7 +9,7 @@ alias ls='ls --color=auto'
 alias grep='grep --color=auto'
 alias rwm='yabai --restart-service && skhd --restart-service'
 alias claude='claude --dangerously-skip-permissions'
-alias oc='opencode2 .'
+alias oc='opencode .'
 alias bj='blackjack-tui'
 
 export JAVA_HOME="/opt/homebrew/opt/openjdk"

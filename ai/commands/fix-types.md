@@ -1,5 +1,5 @@
 ---
-description: Scans all TypeScript/types in a PR or branch diff for soft types (`any`, unnecessary `null`/`undefined`, optional fields that are required, `Partial`, unvalidated JSON, over-wide unions) and hardens them against Prisma/DB schemas, API contracts, and domain invariants — then fixes call sites so the code compiles with those hard types. Prefer exact definitions over `any` or nullish escape hatches. Use when the user runs /fix-types, /fix-types <pr|branch>, "harden types", "fix soft types", "remove any types", "make types strict", or "hard types on this PR/branch".
+description: Scans all TypeScript/types in a PR or branch diff for soft types (`any`, unnecessary `null`/`undefined`, optional fields that are required, `Partial`, unvalidated JSON, over-wide unions) and hardens them against Prisma/DB schemas, API contracts, and domain invariants — then fixes call sites so the code compiles with those hard types. Prefer exact definitions over `any` or nullish escape hatches. Always creates a code-only git worktree first (same as /worktree-quick; yarn install is mandatory) so /fix-types 1234 does not need a prior /worktree-quick. Use when the user runs /fix-types, /fix-types 1234, /fix-types <pr|branch>, "harden types", "fix soft types", "remove any types", "make types strict", or "hard types on this PR/branch".
 ---
 
 # /fix-types - Harden Soft Types on a PR / Branch
@@ -10,6 +10,8 @@ Scans every type that is **part of the current PR or branch** (not the whole mon
 - `/fix-types` — current branch vs detected base (`main`/`master`)
 - `/fix-types <branch>` — treat that branch as the scope (or diff target)
 - `/fix-types pr` / `/fix-types <pr-number>` — use the open PR (or a given PR) for the file set
+
+`/fix-types 1234` is enough — this skill creates the code-only worktree itself. Do **not** require a prior `/worktree-quick`. **Yarn install is mandatory** on every worktree (create, reuse, already-isolated).
 
 ---
 
@@ -28,6 +30,7 @@ Scans every type that is **part of the current PR or branch** (not the whole mon
 ## Execution Flow
 
 ```
+0. Code-only worktree     -> /worktree-quick script + yarn + session_move (always)
 1. Resolve scope          -> Branch / PR / base, file list, full diff
 2. Inventory soft types   -> Scan changed TS/TSX (+ type-bearing files)
 3. Ground truth           -> Prisma / Zod / API / domain contracts per finding
@@ -39,6 +42,44 @@ Scans every type that is **part of the current PR or branch** (not the whole mon
 ```
 
 Use a short todo list for multi-file work. Prefer direct edits; spawn agents only when a package fan-out is large.
+
+---
+
+## Phase 0: Code-only worktree (always, before any work)
+
+Work **never** runs in the primary checkout. Isolate first with the same script as `/worktree-quick`, then continue in that worktree. **Do not** wait for `/worktree-quick`. **Do not** use `/monorepo-worktree`. **Do not** stop after create.
+
+**Yarn is mandatory on every worktree.** Create, reuse, and already-isolated all require `yarn install` in the worktree with exit 0 (10 min timeout). Never skip because `node_modules` exists. Never skip on reuse. If the create script already ran yarn in this turn and you watched it exit 0, that create counts; reuse / already-isolated **must still yarn**.
+
+User arguments: `$ARGUMENTS`
+
+### Parse target
+
+PR numbers / `#N` / `pr N` / GitHub `.../pull/N` / git refs are worktree targets.
+
+| TARGET | Action |
+|--------|--------|
+| PR / URL | `~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh <n-or-url>` |
+| Branch / ref | `…/quick-worktree.sh <ref>` |
+| Empty | `gh pr view --json number -q .number`. If that fails and cwd is already `*-quick-*`, skip create. Else if current branch is not `main`/`master`, worktree that branch. Else ask for a PR number. |
+
+Remember `PR_NUMBER`. Later `gh pr view` must use `gh pr view ${PR_NUMBER}`.
+
+### Create or reuse
+
+Do **not** hand-roll `git worktree add`. Skip create only if cwd is already a matching `*-quick-*` worktree. If path already exists: **reuse**. If reusing and **clean**, fetch+reset to latest. If **dirty**, do not `reset --hard`.
+
+### Yarn (always)
+
+```bash
+(cd "<path>" && yarn install)
+```
+
+Reuse / already-isolated: **always** run this. Wait for exit 0.
+
+### Move the session, then work
+
+OpenCode: `tools.opencode.session_move` with `directory` = absolute worktree path. Continue this session. Then **immediately** continue. Do **not** destroy the worktree when finished.
 
 ---
 
@@ -399,5 +440,6 @@ If the PR is huge, fix all `any` + required-nullish first, then continue until t
 8. **Boundary parse once** — core code trusts hard types.
 9. **Two types over one soft type** when lifecycle differs (draft vs saved, raw vs parsed, anonymous vs authenticated).
 10. **Report clearly** so the user can review intentional soft leftovers.
+11. **Always isolate in a code-only worktree first** (Phase 0). **Yarn install is mandatory** on every worktree (create, reuse, already-isolated). Never skip yarn because `node_modules` exists.
 
 User arguments: $ARGUMENTS

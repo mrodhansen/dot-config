@@ -56,7 +56,7 @@ description: ...
 - `~/.config/opencode/skills` → `~/.ai/oc_skills`
 - `~/.config/opencode/{agents,command,AGENTS.md,workflows-from-grok}` → matching `~/.ai/*`
 - `~/.grok/{skills,agents,workflows}` → `~/.ai/{skills,agents,workflows}`
-- `~/.claude/{skills,agents}` → `~/.ai/{skills,agents}`
+- `~/.claude/{skills,agents}` → `~/.ai/{skills,agents}`; `~/.claude/CLAUDE.md` → `~/.ai/AGENTS.md`; `~/.claude/commands/<name>.md` → `~/.ai/commands/<name>.md` (command-only entries; skip ones that also exist in `skills/`)
 - `~/.agents/skills` → `~/.ai/skills`
 
 Not shared (platform runtime): auth, sessions, caches, logs, `opencode.json`, `config.toml`, `settings.json`.

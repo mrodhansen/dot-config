@@ -1,13 +1,15 @@
 ---
 name: fix-ci
-description: Fetches the most recent GitHub Actions CI run for the current branch's PR, parses all failed jobs/steps for error messages, then diagnoses and fixes each failure in the codebase. Use when user says "/fix-ci", "fix ci", "fix the build", "fix pipeline", "fix github actions", or "ci is failing".
+description: Fetches the most recent GitHub Actions CI run for a PR, parses all failed jobs/steps for error messages, then diagnoses and fixes each failure in the codebase. Always creates a code-only git worktree first (same as /worktree-quick; yarn install is mandatory) so /fix-ci 1234 does not need a prior /worktree-quick. Use when user says "/fix-ci", "/fix-ci 1234", "fix ci", "fix the build", "fix pipeline", "fix github actions", or "ci is failing".
 ---
 
 # /fix-ci - GitHub Actions CI Failure Fixer
 
 Fetches the most recent GitHub Actions CI run for the current branch's PR, finds all failures and errors, diagnoses root causes, and fixes them in the codebase.
 
-**Usage:** `/fix-ci`
+**Usage:** `/fix-ci [PR number | PR URL]`
+
+`/fix-ci 1234` is enough — this skill creates the code-only worktree itself. Do **not** require a prior `/worktree-quick`. **Yarn install is mandatory** on every worktree (create, reuse, already-isolated).
 
 ---
 
@@ -16,7 +18,7 @@ Fetches the most recent GitHub Actions CI run for the current branch's PR, finds
 - **Find every failure.** Don't stop at the first error — CI runs have multiple jobs and steps, and each can fail independently.
 - **Understand before fixing.** Read the full error context, not just the error line. Many CI errors are symptoms of a root cause elsewhere.
 - **Fix the code, not the CI.** The goal is to fix the source code so CI passes, not to hack around CI configuration (unless the CI config itself is the bug).
-- **Verify locally when possible.** After fixing, run the same commands locally to confirm the fix before pushing.
+- **Do not invent a parallel check pipeline.** After fixing, `/pr` (or a normal push) runs `.husky/pre-push`, which is the local CI gate. Never `git push --no-verify`.
 
 ---
 
@@ -36,15 +38,57 @@ Use these specialized agents for fixes:
 ## Execution Flow
 
 ```
-1. Identify PR & Branch      -> Find the PR for the current branch
+0. Code-only worktree        -> /worktree-quick script + yarn + session_move (always)
+1. Identify PR & Branch      -> Find the PR (use PR_NUMBER from Phase 0)
 2. Fetch Latest CI Run       -> Get the most recent workflow run
 3. Find All Failed Jobs      -> Identify every job that didn't pass
 4. Extract Error Messages    -> Parse logs for all error patterns
 5. Diagnose Root Causes      -> Group errors by root cause
 6. Fix Each Issue            -> Implement fixes using specialized agents
-7. Verify Locally            -> Run failing commands locally
-8. Report Summary            -> Show what was fixed
+7. Stop after fixes          -> Do not run a local typecheck/format/test suite here
+8. Report Summary            -> Show what was fixed; next step is `/pr` (pre-push is the gate)
 ```
+
+---
+
+## Phase 0: Code-only worktree (always, before any work)
+
+Work **never** runs in the primary checkout. Isolate first with the same script as `/worktree-quick`, then continue in that worktree. **Do not** wait for the user to run `/worktree-quick`. **Do not** use `/monorepo-worktree`. **Do not** stop after create — continue immediately in this same session.
+
+**Yarn is mandatory on every worktree.** Create, reuse, and already-isolated all require `yarn install` in the worktree with exit 0 (10 min timeout). Never skip because `node_modules` exists. Never skip on reuse. Never skip because the task "doesn't need node_modules". If the create script already ran yarn in this turn and you watched it exit 0, that create counts; reuse / already-isolated **must still yarn**.
+
+User arguments: `$ARGUMENTS`
+
+### Parse target
+
+Split `$ARGUMENTS` into **TARGET** (PR / branch) vs other flags. Only PR numbers, `#N`, `pr N`, GitHub `.../pull/N`, and git refs are worktree targets.
+
+| TARGET | Action |
+|--------|--------|
+| PR / URL | `~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh <n-or-url>` |
+| Branch / ref | `…/quick-worktree.sh <ref>` |
+| Empty | `gh pr view --json number -q .number`. If that fails and cwd is already `*-quick-*`, skip create. Else if current branch is not `main`/`master`, worktree that branch. Else ask for a PR number. |
+
+Remember `PR_NUMBER` when TARGET is a PR. Later `gh pr view` / `gh run list` must use that PR's head ref — local branch is `quick/pr-N`.
+
+### Create or reuse
+
+Must run from the git repo (or `REPO_ROOT`). Do **not** hand-roll `git worktree add`. Skip create only if cwd is already a matching `*-quick-*` worktree. If the script fails with `worktree path already exists: <path>`: **reuse `<path>`**. If reusing and **clean**, fetch+reset to latest PR SHA. If **dirty**, do not `reset --hard`.
+
+### Yarn (always)
+
+```bash
+(cd "<path>" && yarn install)
+```
+
+Reuse / already-isolated: **always** run this. Wait for exit 0. Timeout 10 minutes.
+
+### Move the session, then work
+
+1. OpenCode: `tools.opencode.session_move` with `directory` = absolute worktree path. Continue **this** session.
+2. If session_move is unavailable: `cd` / `working_directory` on every later command.
+3. All later git / Read / Grep / edits happen in that worktree.
+4. One-line note: path, branch, PR URL, destroy command. Then **immediately** continue. Do **not** destroy the worktree when finished.
 
 ---
 
@@ -57,12 +101,13 @@ git branch --show-current
 # Get repo owner/name
 gh repo view --json owner,name --jq '.owner.login + "/" + .name'
 
-# Find the PR for this branch
-gh pr view --json number,url,title,headRefName 2>/dev/null
+# Prefer PR_NUMBER from Phase 0 — local branch is quick/pr-N
+gh pr view ${PR_NUMBER} --json number,url,title,headRefName 2>/dev/null
 ```
 
 - If no PR exists, check for CI runs on the branch directly (push-triggered workflows).
 - If neither exists, **stop and inform the user**.
+- For `gh run list --branch`, use the PR's GitHub `headRefName`, **not** `quick/pr-N`.
 
 ---
 
@@ -270,54 +315,18 @@ When fixes are independent (different files, different root causes), spawn multi
 
 ---
 
-## Phase 7: Verify Locally
+## Phase 7: Do not run a parallel check suite
 
-After all fixes are applied, run the same commands that CI runs locally:
+Do **not** run `tsc` / `npm test` / `nx format` / a guessed CI replica here.
 
-### 7.1 Detect CI Commands
+This repo's local CI gate is `.husky/pre-push` (same jobs as `.github/workflows/ci.yml`). It runs on `git push` and blocks the push on failure.
 
-Read the workflow file(s) to understand what CI runs:
+After fixes are in the working tree:
+1. Report what changed
+2. Tell the user to run `/pr` (commit + push, never `--no-verify`)
+3. If you need to reproduce **one** failed GitHub job while diagnosing, run that job's exact command from `ci.yml` — not a generic substitute
 
-```bash
-# Find workflow files
-ls .github/workflows/
-
-# Read the workflow that failed
-cat .github/workflows/<workflow-file>.yml
-```
-
-### 7.2 Run Verification Commands
-
-Run the same commands locally in order:
-
-```bash
-# Typical verification sequence (adapt to what CI actually runs):
-
-# 1. Install dependencies (if needed)
-npm ci  # or yarn install --frozen-lockfile, pnpm install --frozen-lockfile
-
-# 2. Type check
-npx tsc --noEmit  # or the project's typecheck command
-
-# 3. Lint
-npm run lint  # or the project's lint command
-
-# 4. Test
-npm test  # or the project's test command
-
-# 5. Build
-npm run build  # or the project's build command
-```
-
-### 7.3 If Local Verification Fails
-
-If running locally still shows errors:
-1. Read the new errors
-2. Fix them (repeat Phase 5-6 for new errors)
-3. Re-run verification
-4. Loop until all commands pass
-
-**Maximum 3 fix-verify loops.** If still failing after 3 attempts, report remaining errors to the user.
+You may run `.husky/pre-push` yourself only if you are still iterating on a fix before asking the user to `/pr`. Do not treat a green generic `npm test` as verification.
 
 ---
 
@@ -349,16 +358,11 @@ If running locally still shows errors:
 
 ### Local Verification
 
-| Command | Result |
-|---------|--------|
-| `npx tsc --noEmit` | PASS |
-| `npm run lint` | PASS |
-| `npm test` | PASS |
-| `npm run build` | PASS |
+Not run in this skill. `/pr` push hits `.husky/pre-push` (mirrors CI).
 
 ### Next Steps
-- Run `/pr` to commit and push the fixes
-- CI should pass on the next run
+- Run `/pr` to commit and push the fixes (never `--no-verify`)
+- Pre-push must pass; GitHub CI should then pass
 ```
 
 ---
@@ -373,7 +377,7 @@ If running locally still shows errors:
 | `gh` CLI not authenticated | Stop, tell user to run `gh auth login` |
 | Cannot determine repo owner/name | Stop, ask user to confirm they're in a git repo with a GitHub remote |
 | Logs are too large to parse | Focus on `--log-failed` output and error annotations only |
-| Fix causes new errors | Re-run verification loop (max 3 iterations) |
+| Fix causes new errors | Keep fixing; do not `--no-verify` to skip the hook |
 | Cannot reproduce locally | Report the errors and suggest they may be environment-specific (CI-only dependencies, OS differences, etc.) |
 | Infrastructure/config error (not code) | Spawn devops-automator agent to investigate |
 
@@ -387,6 +391,9 @@ If running locally still shows errors:
 4. **Respect the project's tooling.** Use the same build/test/lint commands the project uses, not generic ones.
 5. **Don't modify CI configuration** unless the CI config itself is clearly broken (e.g., referencing a deleted script). Use devops-automator for CI config changes.
 6. **Track everything.** Every error found must be accounted for in the summary — either fixed or explained.
-7. **Verify before declaring victory.** Always run local verification. An untested fix is not a fix.
+7. **Do not declare CI green from a generic local suite.** The gate is `.husky/pre-push` / GitHub Actions. Never `--no-verify`.
 8. **Be honest about environment-specific failures.** Some CI failures can't be reproduced locally (Docker, specific OS, secret-dependent tests). Report these clearly.
 9. **Use the right agent for each fix type.** Backend errors -> backend-architect, frontend -> frontend-developer, tests -> test-writer-fixer, infra -> devops-automator.
+10. **Always isolate in a code-only worktree first** (Phase 0). **Yarn install is mandatory** on every worktree (create, reuse, already-isolated). Never skip yarn because `node_modules` exists.
+
+User arguments: $ARGUMENTS

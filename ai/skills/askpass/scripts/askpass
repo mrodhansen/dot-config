@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# GUI askpass for agents. Password goes to sudo/ssh/git over a pipe, never chat.
+#
+# Protocol (SSH_ASKPASS / SUDO_ASKPASS / GIT_ASKPASS):
+#   askpass [prompt...]     # password on stdout only; stderr for errors
+#
+# Wrappers (agent should use these — never capture protocol stdout):
+#   askpass sudo [--] <command...>
+#   askpass with [--] <command...>   # ssh, git, ssh-add, scp, rsync, ...
+#   askpass ssh|git|ssh-add [--] <command...>
+#   askpass env NAME [--prompt TEXT] -- <command...>
+#   askpass stdin [--prompt TEXT] -- <command...>
+
+set -euo pipefail
+
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+
+die() {
+  echo "askpass: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF' >&2
+Usage:
+  askpass sudo [--] <command...>
+  askpass with [--] <command...>
+  askpass ssh|git|ssh-add [--] <command...>
+  askpass env NAME [--prompt TEXT] -- <command...>
+  askpass stdin [--prompt TEXT] -- <command...>
+
+Askpass protocol (invoked by sudo/ssh/git, not by agents):
+  askpass [prompt...]
+EOF
+  exit 2
+}
+
+prompt_gui() {
+  local title="$1"
+  local prompt="$2"
+  local secret=""
+  local status=0
+
+  set +x
+  case "$(uname -s)" in
+    Darwin)
+      secret="$(
+        osascript - "$title" "$prompt" <<'APPLESCRIPT'
+on run argv
+  set dialogTitle to item 1 of argv
+  set dialogPrompt to item 2 of argv
+  tell application "System Events"
+    activate
+    try
+      set resultText to text returned of (display dialog dialogPrompt default answer "" with hidden answer with title dialogTitle buttons {"Cancel", "OK"} default button "OK")
+    on error number -128
+      error "CANCELLED" number 1
+    end try
+  end tell
+  return resultText
+end run
+APPLESCRIPT
+      )" || status=$?
+      ;;
+    Linux)
+      if command -v zenity >/dev/null 2>&1; then
+        secret="$(zenity --password --title="$title" --text="$prompt")" || status=$?
+      elif command -v kdialog >/dev/null 2>&1; then
+        secret="$(kdialog --title "$title" --password "$prompt")" || status=$?
+      else
+        die "NO_GUI: install zenity or kdialog"
+      fi
+      ;;
+    *)
+      die "unsupported OS $(uname -s)"
+      ;;
+  esac
+
+  if (( status != 0 )); then
+    die "CANCELLED"
+  fi
+  if [[ -z $secret ]]; then
+    die "EMPTY"
+  fi
+  printf '%s\n' "$secret"
+}
+
+export_ssh_askpass() {
+  export SSH_ASKPASS="$SELF"
+  export SSH_ASKPASS_REQUIRE=force
+  export GIT_ASKPASS="$SELF"
+  export DISPLAY="${DISPLAY:-:0}"
+}
+
+run_sudo() {
+  (( $# > 0 )) || die "usage: askpass sudo <command>"
+  export SUDO_ASKPASS="$SELF"
+  exec sudo -A "$@"
+}
+
+run_with() {
+  (( $# > 0 )) || die "usage: askpass with <command>"
+  export_ssh_askpass
+  exec "$@"
+}
+
+run_env() {
+  local var="" prompt=""
+  (( $# > 0 )) || die "usage: askpass env NAME [--prompt TEXT] -- <command>"
+  var="$1"
+  shift
+  [[ $var =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "invalid env name: $var"
+  prompt="Password for ${var}:"
+  if [[ ${1:-} == --prompt ]]; then
+    shift
+    prompt="${1:-}"
+    [[ -n $prompt ]] || die "usage: askpass env NAME --prompt TEXT -- <command>"
+    shift
+  fi
+  if [[ ${1:-} == -- ]]; then
+    shift
+  fi
+  (( $# > 0 )) || die "env needs a command after --"
+  local secret
+  secret="$(prompt_gui "Agent password" "$prompt")"
+  export "${var}=${secret}"
+  exec "$@"
+}
+
+run_stdin() {
+  local prompt="Password:"
+  if [[ ${1:-} == --prompt ]]; then
+    shift
+    prompt="${1:-}"
+    [[ -n $prompt ]] || die "usage: askpass stdin --prompt TEXT -- <command>"
+    shift
+  fi
+  if [[ ${1:-} == -- ]]; then
+    shift
+  fi
+  (( $# > 0 )) || die "stdin needs a command after --"
+  local secret
+  secret="$(prompt_gui "Agent password" "$prompt")"
+  exec "$@" < <(printf '%s\n' "$secret")
+}
+
+if (( $# == 0 )); then
+  usage
+fi
+
+cmd="$1"
+case "$cmd" in
+  -h | --help | help)
+    usage
+    ;;
+  sudo)
+    shift
+    [[ ${1:-} == -- ]] && shift
+    run_sudo "$@"
+    ;;
+  with)
+    shift
+    [[ ${1:-} == -- ]] && shift
+    run_with "$@"
+    ;;
+  ssh | git | ssh-add | scp | rsync)
+    shift
+    [[ ${1:-} == -- ]] && shift
+    run_with "$cmd" "$@"
+    ;;
+  env)
+    shift
+    run_env "$@"
+    ;;
+  stdin)
+    shift
+    run_stdin "$@"
+    ;;
+  *)
+    prompt_gui "Agent password" "$*"
+    ;;
+esac

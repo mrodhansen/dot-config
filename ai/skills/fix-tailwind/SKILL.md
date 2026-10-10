@@ -1,6 +1,6 @@
 ---
 name: fix-tailwind
-description: Normalizes all Tailwind classes in a PR's touched .tsx/.jsx files to use ONLY values defined in the project's tailwind.config (colors, spacing, fontSize, fontFamily, borderRadius, etc.). Replaces arbitrary values (e.g. `text-[#abc123]`, `p-[13px]`, `bg-[rgb(...)]`), off-scale tokens (e.g. `text-blue-50`, `bg-gray-700`), and any class that doesn't resolve to a config value with the closest available default. Also collapses raw hex/rgb to the nearest configured palette entry. Use when user says "/fix-tailwind", "/fix-tailwind <PR#>", "fix tailwind in this PR", "normalize tailwind classes", or "snap tailwind to config".
+description: Normalizes all Tailwind classes in a PR's touched .tsx/.jsx files to use ONLY values defined in the project's tailwind.config (colors, spacing, fontSize, fontFamily, borderRadius, etc.). Replaces arbitrary values (e.g. `text-[#abc123]`, `p-[13px]`, `bg-[rgb(...)]`), off-scale tokens (e.g. `text-blue-50`, `bg-gray-700`), and any class that doesn't resolve to a config value with the closest available default. Also collapses raw hex/rgb to the nearest configured palette entry. Always creates a code-only git worktree first (same as /worktree-quick; yarn install is mandatory) so /fix-tailwind 1234 does not need a prior /worktree-quick. Use when user says "/fix-tailwind", "/fix-tailwind <PR#>", "fix tailwind in this PR", "normalize tailwind classes", or "snap tailwind to config".
 ---
 
 # /fix-tailwind — Snap Tailwind classes in a PR to config defaults
@@ -11,6 +11,8 @@ Goal: make every Tailwind class in changed `.tsx` / `.jsx` / `.ts` / `.js` front
 - `/fix-tailwind` — operate on the current branch's diff vs. `origin/main`.
 - `/fix-tailwind <PR-number>` — check out the PR locally (or read its diff via `gh pr diff`) and operate on that PR's touched files.
 - `/fix-tailwind <PR-url>` — same, parsed from URL.
+
+`/fix-tailwind 1234` is enough — this skill creates the code-only worktree itself. Do **not** require a prior `/worktree-quick`. **Yarn install is mandatory** on every worktree (create, reuse, already-isolated).
 
 ---
 
@@ -33,6 +35,7 @@ Goal: make every Tailwind class in changed `.tsx` / `.jsx` / `.ts` / `.js` front
 ## Execution Flow
 
 ```
+0. Code-only worktree       -> /worktree-quick script + yarn + session_move (always)
 1. Resolve target           -> current branch OR PR# OR PR URL
 2. Get changed files        -> git diff --name-only (filtered)
 3. Load tailwind config     -> build allowed-value tables per property family
@@ -43,6 +46,44 @@ Goal: make every Tailwind class in changed `.tsx` / `.jsx` / `.ts` / `.js` front
      d. Reassemble + Edit the file (only if changes were made)
 5. Report                   -> per-file before/after table + summary
 ```
+
+---
+
+## Phase 0: Code-only worktree (always, before any work)
+
+Work **never** runs in the primary checkout. Isolate first with the same script as `/worktree-quick`, then continue in that worktree. **Do not** wait for `/worktree-quick`. **Do not** use `/monorepo-worktree`. **Do not** stop after create.
+
+**Yarn is mandatory on every worktree.** Create, reuse, and already-isolated all require `yarn install` in the worktree with exit 0 (10 min timeout). Never skip because `node_modules` exists. Never skip on reuse. If the create script already ran yarn in this turn and you watched it exit 0, that create counts; reuse / already-isolated **must still yarn**.
+
+User arguments: `$ARGUMENTS`
+
+### Parse target
+
+PR numbers / `#N` / `pr N` / GitHub `.../pull/N` / git refs are worktree targets.
+
+| TARGET | Action |
+|--------|--------|
+| PR / URL | `~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh <n-or-url>` |
+| Branch / ref | `…/quick-worktree.sh <ref>` |
+| Empty | `gh pr view --json number -q .number`. If that fails and cwd is already `*-quick-*`, skip create. Else if current branch is not `main`/`master`, worktree that branch. Else ask for a PR number. |
+
+Remember `PR_NUMBER`. Later `gh pr view` must use `gh pr view ${PR_NUMBER}`.
+
+### Create or reuse
+
+Do **not** hand-roll `git worktree add`. Skip create only if cwd is already a matching `*-quick-*` worktree. If path already exists: **reuse**. If reusing and **clean**, fetch+reset to latest. If **dirty**, do not `reset --hard`.
+
+### Yarn (always)
+
+```bash
+(cd "<path>" && yarn install)
+```
+
+Reuse / already-isolated: **always** run this. Wait for exit 0.
+
+### Move the session, then work
+
+OpenCode: `tools.opencode.session_move` with `directory` = absolute worktree path. Continue this session. Then **immediately** continue. Do **not** destroy the worktree when finished.
 
 ---
 
@@ -290,3 +331,7 @@ If `--dry-run` was passed (or user said "preview" / "don't apply"), produce the 
 | `font-DM_Sans` / `font-['DM_Sans']` | `font-sans` |
 
 These are illustrative — always re-derive from the actual config at run time, not from this table.
+
+**Always isolate in a code-only worktree first** (Phase 0). **Yarn install is mandatory** on every worktree (create, reuse, already-isolated). Never skip yarn because `node_modules` exists.
+
+User arguments: $ARGUMENTS

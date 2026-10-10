@@ -1,112 +1,72 @@
 {
-    "$schema": "https://opencode.ai/config.json",
-    "provider": {
-        "ollama": {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "Ollama (local)",
-            "options": {
-                "baseURL": "http://localhost:11434/v1"
-            },
-            "models": {
-                "gemma4:31b": {
-                    "name": "Gemma 4 31B"
-                },
-                "gemma4:e4b": {
-                    "name": "Gemma 4 e4b"
-                }
-            }
-        }
+  "$schema": "https://opencode.ai/config.json",
+  "update": "auto",
+  "websearch": false,
+  "formatter": true,
+  "experimental": {
+    "subagent_depth": 4
+  },
+  "agents": {
+    "build": {
+      "color": "#dc2626",
+      "permissions": [{ "action": "*", "resource": "*", "effect": "allow" }]
     },
-    "agent": {
-        "build": {
-            "color": "#dc2626",
-            "permission": {
-                "*": {
-                    "*": "allow",
-                }
-            }
-        },
-        "quick": {
-            "description": "A fast agent for quick questions and simple tasks. Uses Sonnet for speed and efficiency.",
-            "model": "anthropic/claude-sonnet-4-6",
-            "temperature": 0.3,
-            "prompt": "You are a fast, concise assistant for quick questions. Give short, direct answers. Avoid unnecessary explanation unless asked for more detail.",
-            "tools": {
-                "write": false,
-                "edit": false
-            },
-            "permission": {
-                "edit": "deny",
-                "bash": {
-                    "*": "ask"
-                }
-            },
-            "color": "#22c55e"
-        },
-        "plan": {
-            "description": "Analyzes codebases and designs implementation plans without making changes. Read-only exploration with controlled bash access.",
-            "mode": "primary",
-            "temperature": 0.3,
-            "prompt": "You are a senior software architect and planner. Your role is to analyze codebases, understand existing patterns, and design detailed implementation plans.\n\nWhen planning:\n- Read and explore the codebase thoroughly before proposing anything\n- Identify existing patterns, conventions, and architecture\n- Consider dependencies, edge cases, and potential issues\n- Break work into clear, ordered tasks with file paths and descriptions\n- Specify which specialist agent (frontend-developer or backend-architect) should handle each task\n- Call out risks, trade-offs, and open questions\n\nYou can read files, search code, and run safe bash commands (like git log, ls, etc.) to understand the project. You should NOT modify any files directly - your output is a plan for other agents to execute.",
-            "tools": {
-                "write": false,
-                "edit": false,
-                "todo": true
-            },
-            "permission": {
-                "edit": "deny",
-                "bash": {
-                    "*": "ask"
-                },
-                "webfetch": "ask"
-            },
-            "color": "#6366f1"
-        }
+    "quick": {
+      "description": "A fast agent for quick questions and simple tasks. Uses Sonnet for speed and efficiency.",
+      "model": "anthropic/claude-sonnet-4-6",
+      "system": "You are a fast, concise assistant for quick questions. Give short, direct answers. Avoid unnecessary explanation unless asked for more detail.",
+      "permissions": [
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "*", "effect": "ask" }
+      ],
+      "color": "#22c55e"
     },
-    "permission": "allow",
-    "lsp": {
-        "typescript": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/typescript-language-server", "--stdio"]
-        },
-        "bash": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/bash-language-server", "start"]
-        },
-        "lua-ls": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/lua-language-server"]
-        },
-        "pyright": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/pyright-langserver", "--stdio"]
-        },
-        "svelte": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/svelteserver", "--stdio"]
-        },
-        "vue": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/vue-language-server", "--stdio"]
-        },
-        "yaml-ls": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/yaml-language-server", "--stdio"]
-        },
-        "prisma": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/prisma-language-server", "--stdio"]
-        },
-        "clangd": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/clangd"]
-        },
-        "html": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/vscode-html-language-server", "--stdio"],
-            "extensions": [".html", ".htm"]
-        },
-        "css": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/vscode-css-language-server", "--stdio"],
-            "extensions": [".css", ".scss", ".less"]
-        },
-        "json": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/vscode-json-language-server", "--stdio"],
-            "extensions": [".json", ".jsonc"]
-        },
-        "tailwindcss": {
-            "command": ["/Users/mrodhansen/.local/share/nvim/mason/bin/tailwindcss-language-server", "--stdio"],
-            "extensions": [".html", ".css", ".js", ".ts", ".jsx", ".tsx", ".vue", ".svelte"]
-        }
+    "plan": {
+      "description": "Analyzes codebases and designs implementation plans without making changes. Read-only exploration with controlled bash access.",
+      "mode": "primary",
+      "system": "You are a senior software architect and planner. Your role is to analyze codebases, understand existing patterns, and design detailed implementation plans.\n\nWhen planning:\n- Read and explore the codebase thoroughly before proposing anything\n- Identify existing patterns, conventions, and architecture\n- Consider dependencies, edge cases, and potential issues\n- Break work into clear, ordered tasks with file paths and descriptions\n- Specify which specialist agent (frontend-developer or backend-architect) should handle each task\n- Call out risks, trade-offs, and open questions\n\nYou can read files, search code, and run safe bash commands (like git log, ls, etc.) to understand the project. You should NOT modify any files directly - your output is a plan for other agents to execute.",
+      "permissions": [
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "*", "effect": "ask" },
+        { "action": "webfetch", "resource": "*", "effect": "ask" }
+      ],
+      "color": "#6366f1"
+    },
+    "general": {
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "allow" }
+      ]
+    },
+    "explore": {
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "allow" }
+      ]
     }
+  },
+  "providers": {
+    "ollama": {
+      "name": "Ollama (local)",
+      "models": {
+        "gemma4:31b": { "name": "Gemma 4 31B" },
+        "gemma4:e4b": { "name": "Gemma 4 e4b" }
+      }
+    }
+  },
+  "mcp": {
+    "servers": {
+      "blender": {
+        "type": "local",
+        "command": ["/Users/mrodhansen/.local/bin/blender-mcp"]
+      },
+      "context7": {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp"
+      },
+      "gh_grep": {
+        "type": "remote",
+        "url": "https://mcp.grep.app",
+        "oauth": false
+      }
+    }
+  }
 }

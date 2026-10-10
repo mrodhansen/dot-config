@@ -1,7 +1,6 @@
 ---
 description: Build user interfaces, implement React/Vue/Angular components, handle state management, and optimize frontend performance. Specializes in responsive, accessible, performant web applications with design system expertise.
 mode: subagent
-permission: "allow"
 color: "#3b82f6"
 ---
 

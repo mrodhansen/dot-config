@@ -1,7 +1,6 @@
 ---
 description: Implement AI/ML features, integrate language models, build recommendation systems, and add intelligent automation to applications. Specializes in practical AI implementation for rapid deployment.
 mode: subagent
-permission: "allow"
 color: "#06b6d4"
 ---
 

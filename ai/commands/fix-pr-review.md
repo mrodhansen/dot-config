@@ -1,12 +1,14 @@
 ---
-description: Fetches unresolved review comments and discussion threads from the current branch's PR, automatically fixes LOW (nits) and SEMANTIC items, presents CRITICAL/HIGH/MEDIUM items to the user with proposed fixes for approval, then replies on EVERY processed thread (including skipped) describing what changed or why it was skipped, and marks each resolved on GitHub. Use when user says "/fix-pr-review", "fix pr review", "address pr feedback", "handle review comments", or "/pr-review-fix".
+description: Fetches unresolved review comments and discussion threads from a PR, automatically fixes LOW (nits) and SEMANTIC items, presents CRITICAL/HIGH/MEDIUM items to the user with proposed fixes for approval, then replies on EVERY processed thread (including skipped) describing what changed or why it was skipped, and marks each resolved on GitHub. Always creates a code-only git worktree first (same as /worktree-quick; yarn install is mandatory) so /fix-pr-review 1234 does not need a prior /worktree-quick. Use when user says "/fix-pr-review", "/fix-pr-review 1234", "fix pr review", "address pr feedback", "handle review comments", or "/pr-review-fix".
 ---
 
 # /fix-pr-review - PR Review Feedback Handler
 
 Reads **unresolved** review comments and discussion threads from the current branch's PR, triages them by severity, auto-fixes low-risk nits and semantic suggestions, presents higher-impact items to the user with proposed fixes for approval, then **replies on every processed thread (including skipped) and marks it resolved on GitHub**. Each reply must say what changed or why the item was skipped. Already-resolved threads are excluded from processing.
 
-**Usage:** `/fix-pr-review`
+**Usage:** `/fix-pr-review [PR number | PR URL]`
+
+`/fix-pr-review 1234` is enough — this skill creates the code-only worktree itself. Do **not** require a prior `/worktree-quick`. **Yarn install is mandatory** on every worktree (create, reuse, already-isolated).
 
 ---
 
@@ -22,7 +24,8 @@ Reads **unresolved** review comments and discussion threads from the current bra
 ## Execution Flow
 
 ```
-1. Identify PR              -> Find the PR for the current branch
+0. Code-only worktree       -> /worktree-quick script + yarn + session_move (always)
+1. Identify PR              -> Find the PR (use PR_NUMBER from Phase 0)
 2. Fetch Unresolved Feedback -> Reviews, inline comments, conversation threads (skip resolved)
 3. Triage & Classify        -> Assign severity to each unresolved piece of feedback
 4. Auto-Fix Low/Semantic    -> Implement nits and semantic suggestions directly
@@ -33,10 +36,62 @@ Reads **unresolved** review comments and discussion threads from the current bra
 
 ---
 
+## Phase 0: Code-only worktree (always, before any work)
+
+Work **never** runs in the primary checkout. Isolate first with the same script as `/worktree-quick`, then continue in that worktree. **Do not** wait for the user to run `/worktree-quick`. **Do not** use `/monorepo-worktree`. **Do not** stop after create — continue immediately in this same session.
+
+**Yarn is mandatory on every worktree.** Create, reuse, and already-isolated all require `yarn install` in the worktree with exit 0 (10 min timeout). Never skip because `node_modules` exists. Never skip on reuse. Never skip because the task "doesn't need node_modules". If the create script already ran yarn in this turn and you watched it exit 0, that create counts; reuse / already-isolated **must still yarn**.
+
+User arguments: `$ARGUMENTS`
+
+### Parse target
+
+Split `$ARGUMENTS` into **TARGET** (PR / branch) vs other flags. Only PR numbers, `#N`, `pr N`, GitHub `.../pull/N`, and git refs are worktree targets.
+
+| TARGET | Action |
+|--------|--------|
+| PR / URL | `~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh <n-or-url>` |
+| Branch / ref | `…/quick-worktree.sh <ref>` |
+| Empty | `gh pr view --json number -q .number`. If that fails and cwd is already `*-quick-*`, skip create. Else if current branch is not `main`/`master`, worktree that branch. Else ask for a PR number. |
+
+Remember `PR_NUMBER` when TARGET is a PR. Later `gh pr view` must use `gh pr view ${PR_NUMBER}` — local branch is `quick/pr-N`.
+
+### Create or reuse
+
+Must run from the git repo (or `REPO_ROOT`). Do **not** hand-roll `git worktree add`.
+
+Skip create only if cwd is already a matching `*-quick-*` worktree (same PR / slug).
+
+If the script fails with `worktree path already exists: <path>`: **reuse `<path>`**. Do not destroy.
+
+If reusing and the worktree is **clean**, fetch+reset to the latest PR/branch SHA. If **dirty**, do not `reset --hard` (keep in-progress fixes).
+
+### Yarn (always)
+
+After the path is known, unless you just watched create's yarn exit 0:
+
+```bash
+(cd "<path>" && yarn install)
+```
+
+Reuse / already-isolated: **always** run this. Wait for exit 0. Timeout 10 minutes.
+
+### Move the session, then work
+
+1. OpenCode: `tools.opencode.session_move` with `directory` = absolute worktree path. Continue **this** session.
+2. If session_move is unavailable: `cd` / `working_directory` on every later command.
+3. All later git / Read / Grep / edits happen in that worktree.
+4. One-line note: path, `quick/…` branch, PR URL, destroy command (`~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh destroy <slug> --yes`). Then **immediately** continue.
+
+Do **not** destroy the worktree when finished.
+
+---
+
 ## Phase 1: Identify the PR
 
 ```bash
-gh pr view --json number,url,title,state,headRefName 2>/dev/null
+# Prefer PR_NUMBER from Phase 0 — local branch is quick/pr-N, not the GitHub head ref
+gh pr view ${PR_NUMBER} --json number,url,title,state,headRefName 2>/dev/null
 ```
 
 Resolve repo names dynamically (case-sensitive):
@@ -475,3 +530,6 @@ After all work is complete (including Phase 6), provide a final report:
 11. **Reply before resolve** — always post the explanation first, then mark the thread resolved.
 12. **Do not dismiss reviews** (`PUT .../reviews/{id}/dismissals`) unless the user explicitly asks — resolving threads is enough for conversation hygiene.
 13. **Coverage before done** — do not finish until replied + resolved count matches the Phase 2 unresolved thread count (minus any the user explicitly asked to leave open).
+14. **Always isolate in a code-only worktree first** (Phase 0 / `/worktree-quick` script). Never work in the primary checkout. **Yarn install is mandatory** on every worktree (create, reuse, already-isolated). Never skip yarn because `node_modules` exists.
+
+User arguments: $ARGUMENTS

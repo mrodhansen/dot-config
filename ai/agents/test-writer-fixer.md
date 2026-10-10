@@ -1,7 +1,6 @@
 ---
 description: Write comprehensive tests, run test suites, analyze failures, and fix test issues while maintaining test integrity. Proactively triggered after code modifications to ensure coverage and suite health.
 mode: subagent
-permission: "allow"
 color: "#06b6d4"
 ---
 

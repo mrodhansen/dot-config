@@ -1,2 +1,5 @@
 .DS_Store
 **/.DS_Store
+
+# Anthropic skill-sync cache (auto-populated by Claude Code)
+ai/skills/synced/

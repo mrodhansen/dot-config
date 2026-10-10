@@ -17,7 +17,7 @@ Clone lives at `~/projects/dot-config`. Live paths are symlinks into this repo.
 Shared agents, skills, commands, workflows. Platform dirs symlink into `~/.ai`:
 
 - `~/.config/opencode/{agents,command,skills,AGENTS.md}` → `~/.ai`
-- `~/.claude/{skills,agents}` → `~/.ai`
+- `~/.claude/{skills,agents,CLAUDE.md}` → `~/.ai` (`CLAUDE.md` → `AGENTS.md`); `~/.claude/commands/*.md` → command-only `~/.ai/commands/*.md`
 - `~/.grok/{skills,agents,workflows}` → `~/.ai`
 - `~/.agents/skills` → `~/.ai/skills`
 

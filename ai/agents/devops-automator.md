@@ -1,7 +1,6 @@
 ---
 description: Set up CI/CD pipelines, configure cloud infrastructure, implement monitoring systems, and automate deployment processes. Specializes in making deployment and operations seamless for rapid development cycles.
 mode: subagent
-permission: "allow"
 color: "#f97316"
 ---
 

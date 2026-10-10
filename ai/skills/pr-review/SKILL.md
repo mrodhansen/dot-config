@@ -1,17 +1,19 @@
 ---
 name: pr-review
-description: Deep code review agent that analyzes all diffs on the current branch for performance bottlenecks, security vulnerabilities, code quality issues, "just make it work" silent-failure patterns (swallowed errors, bad fallbacks that should hard-fail — often rooted in soft types; fix by hardening exact types, never with any), incomplete end-to-end wiring (write-only fields, missed dual-path consumers), app-only invariants/races, thin authZ/tenant gates, form hydration wipes, wrong response envelopes, tests that no-op green, dead/unused code and stale leftover comments, and repeated logic that should be shared (3+ real uses). Includes a conservative architecture sense-check that only speaks at the end if the approach is clearly poor or a clearly better path exists in this codebase (silence when fine; never blocks merge). Optionally validates changes against a PRD to ensure implementation correctness and completeness. Spawns one specialist agent per review concern in parallel for speed. After the report, MUST stop and ask the user which findings to post, then submit each selected finding as an inline GitHub PR review comment. Use when user says "/pr-review", "/pr-review <prd-file>", "review my code", "review this branch", or "check my changes".
+description: Deep code review agent that always creates a code-only git worktree first (same as /worktree-quick — fetch + checkout, env copy, yarn install; no DB/ports/seed) then analyzes all diffs in that worktree for performance bottlenecks, security vulnerabilities, code quality issues, "just make it work" silent-failure patterns (swallowed errors, bad fallbacks that should hard-fail — often rooted in soft types; fix by hardening exact types, never with any), incomplete end-to-end wiring (write-only fields, missed dual-path consumers), app-only invariants/races, thin authZ/tenant gates, form hydration wipes, wrong response envelopes, tests that no-op green, dead/unused code and stale leftover comments, and repeated logic that should be shared (3+ real uses). Includes a conservative architecture sense-check that only speaks at the end if the approach is clearly poor or a clearly better path exists in this codebase (silence when fine; never blocks merge). Optionally validates changes against a PRD to ensure implementation correctness and completeness. Spawns one specialist agent per review concern in parallel for speed. After the report, MUST stop with the numbered findings list — do not walk findings one at a time and do not use the Question tool. In later turns, answer questions about findings, or when the user asks to add/post a number list (e.g. 1-3, 5, 19, 24-26) or a single number, submit those as inline GitHub PR review comments. Use when user says "/pr-review", "/pr-review 1234", "/pr-review <pr-url>", "/pr-review <prd-file>", "review my code", "review this branch", "review PR 1234", or "check my changes". Do not require a prior /worktree-quick.
 ---
 
 # /pr-review - Deep Code Review Agent
 
-Performs a comprehensive, multi-pass review of all changes on the current branch. Hunts for performance bottlenecks, security vulnerabilities, race conditions, code quality issues, and "just make it work" patterns — silent fallbacks, swallowed errors, and soft-fail paths that hide real bugs. When a PRD is provided, also validates that the implementation matches the requirements.
+Performs a comprehensive, multi-pass review of a PR or branch, always from a code-only worktree (same as `/worktree-quick`). Hunts for performance bottlenecks, security vulnerabilities, race conditions, code quality issues, and "just make it work" patterns — silent fallbacks, swallowed errors, and soft-fail paths that hide real bugs. When a PRD is provided, also validates that the implementation matches the requirements.
 
 **Speed model:** After gathering context, **every review concern runs as its own specialist agent in parallel**. The main agent only gathers context, launches the fan-out, and synthesizes findings. Do not run security → performance → quality as sequential main-agent passes.
 
-**Usage:** `/pr-review [optional-prd-file-path]`
+**Usage:** `/pr-review [PR number | PR URL | branch] [optional-prd-file-path]`
 
-After the report, the agent **stops and asks which findings to post**, then submits each selected finding as an **inline** GitHub PR review comment.
+`/pr-review 1234` is enough — this skill creates the code-only worktree itself. Do **not** require a prior `/worktree-quick`.
+
+After the report, the agent **stops** with the numbered findings list. It does **not** walk findings one at a time and does **not** use the Question tool. Later, the user may ask questions, or ask to **add/post** a number list (e.g. `1-3, 5, 19, 24-26`) or a single number — only then submit those as **inline** GitHub PR review comments.
 
 ---
 
@@ -36,7 +38,8 @@ After the report, the agent **stops and asks which findings to post**, then subm
 ## Execution Flow
 
 ```
-1. Context Gathering          -> Branch info, base branch, full diff (main agent)
+0. Code-only worktree         -> /worktree-quick script + session_move (always; then review)
+1. Context Gathering          -> Branch info, base branch, full diff (main agent, in the worktree)
 2. Diff Decomposition         -> Split diffs by file, categorize by domain (main agent)
 3. PARALLEL SPECIALIST FAN-OUT -> Spawn one agent per concern type AT THE SAME TIME
       ├─ Agent A: Security
@@ -51,15 +54,89 @@ After the report, the agent **stops and asks which findings to post**, then subm
       └─ Agent J: Duplication / extract-to-shared
  4. Synthesis & Report         -> Deduplicate, rank, unified report (main agent)
                                 -> Architecture note only if Agent H is not "fine"
- 5. Select & Post Inline       -> ASK which findings to post; wait; then submit
-                                each selected finding as an inline GitHub review comment
+                                -> STOP. Numbered list is the end of this turn.
+ 5. Follow-up (later turns)    -> Answer questions; post inline comments only when
+                                 the user asks to add/post numbers (e.g. 1-3, 5, 19)
 ```
 
 **Critical rule:** In Phase 3, issue **all** specialist agent spawns in a single parallel batch (multiple tool calls together). Do **not** wait for Agent A before spawning Agent B. Only after every specialist has returned, run Phase 4 synthesis.
 
-**Select-before-post rule:** After the report, **stop**. Do **not** post anything to GitHub until the user selects findings. Then post **only** the selected ones, each as an **inline** review comment (file + line). Never a top-level PR issue comment in place of an inline comment.
+**Stop-after-report rule:** After the report, **stop**. Do **not** call the Question tool. Do **not** walk findings one at a time. Do **not** post to GitHub in the report turn. In later turns, answer questions about findings, or when the user asks to add/post a number list or a single finding, post **only** those as **inline** review comments (file + line). Never a top-level PR issue comment in place of an inline comment.
 
 **Architecture sense-check rule:** Agent H is advisory only. Its output never becomes CRITICAL/HIGH merge blockers and never asks anyone to re-architect. If the verdict is `fine`, omit architecture entirely from the final report.
+
+---
+
+## Phase 0: Code-only worktree (always, before any review)
+
+Review **never** runs in the primary checkout. Isolate first with the same script as `/worktree-quick`, then review inside that worktree. **Do not** wait for the user to run `/worktree-quick`. **Do not** use `/monorepo-worktree` (no DB, ports, seed, or serve). **Do not** stop after create — continue immediately into Phase 1 in this same session.
+
+User arguments: `$ARGUMENTS`
+
+### Parse target
+
+Split `$ARGUMENTS` into **TARGET** + optional **PRD path**:
+
+| Token | Meaning |
+|-------|---------|
+| `1234` / `#1234` / `pr 1234` / GitHub `.../pull/1234` | PR |
+| `feature/foo` / `origin/foo` / other git ref | Branch |
+| Path ending in `.md` or an existing file | PRD (not a worktree target) |
+| Empty | `gh pr view --json number -q .number`. If that fails and cwd is already a `*-quick-*` worktree, TARGET = current worktree (skip create). Else ask for a PR number — do not invent a task worktree. |
+
+Resolve a relative PRD path to an **absolute** path against the **pre-move** cwd before leaving the primary checkout.
+
+Remember `PR_NUMBER` when TARGET is a PR. Later `gh pr view` / review POSTs must use `gh pr view ${PR_NUMBER}` — the local branch will be `quick/pr-N`, which GitHub does not treat as the PR head.
+
+### Skip create only when already isolated
+
+Skip create if cwd is already a `*-quick-*` worktree (basename `*-quick-*` or gitdir marker `worktree-quick`) **and** it matches TARGET (same PR number / same slug). Still fetch+reset (below) so the review is current.
+
+### Create or reuse
+
+Script: `~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh`
+
+Must run from the git repo under review (or set `REPO_ROOT`). Do **not** hand-roll `git worktree add`.
+
+```bash
+~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh 1234
+~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh pr 1234
+~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh https://github.com/org/repo/pull/1234
+~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh feature/foo
+```
+
+Parse `path:` from the success banner.
+
+If the script fails with `worktree path already exists: <path>`: **reuse `<path>`**. Do not destroy. Fetch the PR/branch and `git -C <path> reset --hard` to that SHA so the review is current:
+
+```bash
+# PR
+git fetch origin pull/${PR_NUMBER}/head
+git -C "<path>" reset --hard FETCH_HEAD
+
+# Branch
+git fetch origin <branch>
+git -C "<path>" reset --hard origin/<branch>
+```
+
+### Yarn (mandatory, every worktree)
+
+After the path is known — **fresh create, reuse, or already-isolated** — run and wait for exit 0:
+
+```bash
+(cd "<path>" && yarn install)
+```
+
+Timeout 10 minutes. Never skip because `node_modules` exists. Never skip on reuse. Never skip because the task "doesn't need node_modules". If the create script already ran yarn in this turn and you **watched it exit 0**, that create counts; reuse / already-isolated **must still yarn**.
+
+### Move the session, then review
+
+1. OpenCode: `tools.opencode.session_move` with `directory` = the absolute worktree path. Continue **this** session. Do not spawn a subagent to perform the review.
+2. If session_move is unavailable: `cd` / set `working_directory` on every later command to that path.
+3. Every later git / Read / Grep / specialist must run in that worktree, not the primary checkout.
+4. One-line note: path, `quick/…` branch, PR URL, destroy command (`~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh destroy <slug> --yes`). Then **immediately** start Phase 1.
+
+Do **not** destroy the worktree after the report (follow-up posting still needs the checkout).
 
 ---
 
@@ -930,7 +1007,7 @@ After **all** specialists complete, the main agent compiles a unified report.
 — not a merge blocker, not work the review agent will perform. Do not invent a rewrite plan.]
 
 ### Next Steps
-1. **Select findings below** to post as inline GitHub review comments (Phase 5)
+1. Ask about any finding, or reply with numbers to post as inline GitHub comments (e.g. `add 1-3, 5, 19` or `add 7`)
 2. Fix all CRITICAL findings before merge
 3. Address HIGH findings — these will cause problems in production
 4. Consider MEDIUM findings for code quality
@@ -940,47 +1017,78 @@ After **all** specialists complete, the main agent compiles a unified report.
 
 **User-facing rule for architecture:** After the report, if Agent H said `fine`, do not mention architecture at all. If not fine, the architecture section in the report is enough — do not push a re-architecture unless the user asks.
 
-**After the report, Phase 5 is mandatory** whenever there is at least one finding. Do not end the skill after printing the tables.
+**After the report, stop.** Do not call the Question tool. Do not walk findings. Do not post to GitHub in this turn. Phase 5 runs only on later user messages.
 
 ---
 
-## Phase 5: Select Findings & Post Inline GitHub Review
+## Phase 5: Follow-up chat — discuss or post selected findings
 
-The report is not the end. After showing it, **ask the user which findings to post**, wait for their answer, then submit each selected finding as an **inline** comment on the GitHub pull request.
+The report **is** the end of the review turn. After printing it, **stop**. Do **not** call the Question tool. Do **not** walk findings one at a time. Do **not** post to GitHub until a later user message asks you to add/post findings.
 
-### 5.1 Stop and ask (required)
+Keep the numbered findings in conversation context. The user will chat from there.
 
-Do **not** post to GitHub in the same turn as the report. Ask first.
+### 5.1 Report-turn stop (required)
 
-Use the `Question` tool with `multiple: true` so the user can pick findings. Build one option per numbered finding from the report:
+In the same turn as the report:
 
-| Field | Value |
-|-------|-------|
-| `header` | `Post to PR` |
-| `question` | `Which findings should I post as inline review comments on the GitHub PR?` |
-| `multiple` | `true` |
-| Each option `label` | `#N [SEVERITY] short issue title` (1–5 words) |
-| Each option `description` | `file:line — category` |
+- Print the numbered findings tables (and the rest of the report template).
+- In Next Steps, tell the user they can ask questions or reply with numbers to post (e.g. `add 1-3, 5, 19` or `add 7`).
+- **Stop.** No Question tool. No GitHub. No "Add / Don't add" prompts.
 
-Also include these two options:
-
-- **All findings** — post every numbered finding
-- **None** — skip GitHub posting
-
-If `Question` is unavailable, print the numbered list and ask the user to reply with numbers (`1, 3, 5`), `all`, or `none`.
+**Zero findings:** Skip Phase 5 entirely.
 
 **Not selectable:** Agent H architecture notes. They stay in the report only.
 
-**Zero findings:** Skip Phase 5. Do not ask.
+### 5.2 Later turns — questions vs post
 
-**Do not invent a default selection.** If the user does not answer, wait. If they say `none` / skip, stop — no GitHub API calls.
+On later messages:
 
-### 5.2 Resolve the PR
+| User intent | What to do |
+|-------------|------------|
+| Questions / debate about a finding (or several) | Answer. Do **not** post. |
+| Explicit add/post of a number list or a single number | Parse the selection (5.3) and post those as **inline** comments (5.4–5.7). |
+| `add all` / `post all` | Post every numbered finding. |
+| Unclear (chat that is not a post request) | Answer; do **not** post. |
 
-Only after the user selects at least one finding:
+**Do not invent a default selection.** Never auto-post. Never use the Question tool for this flow.
+
+### 5.3 Parse the selection
+
+Trigger words: `add`, `post`, `comment`, `inline` — plus a number list, a single number, or `all`. Parentheses are optional.
+
+A message that is **only** a number list (or a single number) is also a post request.
+
+Examples that **must** post:
+
+- `add 1-3, 5, 19, 24-26`
+- `add 7`
+- `7`
+- `post 1, 4, 9`
+- `1-3, 5, 19, 24-26`
+- `(1-3, 5, 19, 24-26)`
+- `add all`
+
+Parse rules:
+
+1. Strip wrapping `()` / `[]`.
+2. Split on commas and whitespace.
+3. A token `N-M` is the inclusive range N through M.
+4. A token `N` is finding N.
+5. `all` = every numbered finding in the report.
+6. Deduplicate; ignore numbers that are not in the report (tell the user which were invalid).
+7. If they also paste custom comment text for a specific `#`, use that text as that finding's `body`; otherwise use the finding's Issue + Fix.
+
+If the parsed set is empty after validation, stop — no GitHub.
+
+They may post more than once in later turns (e.g. `add 1-3` then later `add 5`). Do not re-post findings already posted in this conversation unless they ask to post again.
+
+### 5.4 Resolve the PR
+
+Only after a later turn requests posting with at least one valid finding number:
 
 ```bash
-gh pr view --json number,url,title,headRefOid,headRefName
+# Prefer the PR number from Phase 0 — local branch is quick/pr-N, not the GitHub head ref
+gh pr view ${PR_NUMBER} --json number,url,title,headRefOid,headRefName
 gh repo view --json nameWithOwner -q '.nameWithOwner'
 ```
 
@@ -989,7 +1097,7 @@ Split `nameWithOwner` into `OWNER` / `REPO`. Set `NO_COLOR=1` on `gh api` calls.
 - If no PR exists for this branch, **stop** and tell the user. Do not create a PR. Do not post issue comments.
 - Confirm `headRefOid` is the commit comments will attach to.
 
-### 5.3 Resolve an inline anchor per selected finding
+### 5.5 Resolve an inline anchor per selected finding
 
 Every posted comment **must** be inline: `path` + `line` on the PR head (`side: RIGHT` for added/changed lines).
 
@@ -1007,12 +1115,12 @@ NO_COLOR=1 gh api repos/{OWNER}/{REPO}/pulls/{pr}/files --paginate
 5. If the file is not in the PR diff, **do not** post that finding as a top-level comment. Skip it and tell the user it could not be inlined.
 6. Deleted-only lines: `side: LEFT` and the old-file line. Prefer RIGHT whenever the line still exists in the new file.
 
-### 5.4 Submit one review containing every selected inline comment
+### 5.6 Submit one review containing every selected inline comment
 
 Write the payload to a JSON file and `POST` it with `--input`. Do **not** use `--field 'comments=[...]'` (breaks on markdown/newlines). Do **not** post one review per finding. Do **not** use `gh pr comment` (that is a non-inline issue comment).
 
 ```bash
-# commit_id MUST be the PR head SHA from 5.2
+# commit_id MUST be the PR head SHA from 5.4
 cat > /tmp/pr_review.json << 'ENDJSON'
 {
   "commit_id": "<headRefOid>",
@@ -1055,7 +1163,7 @@ Each comment `body` format:
 
 GitHub review comment cap is 100 inline comments per review. If more than 100 are selected, split across multiple review POSTs (same `event` / `commit_id`).
 
-### 5.5 Report what was posted
+### 5.7 Report what was posted
 
 After a successful POST, tell the user:
 
@@ -1073,6 +1181,9 @@ Do not re-print the full review report.
 | Error | Action |
 |-------|--------|
 | No changes on branch (clean diff) | Stop, inform user there's nothing to review |
+| Worktree script fails (not already-exists) | Stop; show full output; do **not** review the primary checkout |
+| Worktree path already exists | Reuse that path; fetch+reset to latest PR/branch SHA |
+| session_move unavailable | `cd` / `working_directory` on every command to the worktree path |
 | Cannot detect base branch | Ask user which branch to diff against |
 | PRD file not found | Warn user and continue without Agent G |
 | Diff is extremely large (>5000 lines) | Chunk and spawn multiple agents **per specialty** in parallel |
@@ -1080,8 +1191,10 @@ Do not re-print the full review report.
 | Agent returns no findings | Accept it — don't fabricate issues. Report "clean" for that specialty |
 | Agent H returns fine | Omit architecture from the report entirely — silence is correct |
 | Agent H fails twice | Treat as fine; do not invent architecture concerns |
-| No PR for current branch | After selection, stop; do not create a PR; do not post issue comments |
-| User selects none / does not answer | Do not post; wait or stop |
+| No PR for current branch | On a post request, stop; do not create a PR; do not post issue comments |
+| User only asks questions | Answer; do not post |
+| Number list / add / post in a later turn | Parse and post those findings only |
+| Invalid finding numbers | Skip them; tell the user which were invalid |
 | Finding file/line not in PR diff | Snap to nearest changed line in that file; if file absent from diff, skip (never fall back to a top-level comment) |
 | Review POST 422 (invalid line/commit) | Fix `commit_id` / line / side and retry that review once; if it still fails, skip those comments and report why |
 | More than 100 selected findings | Split into multiple review POSTs |
@@ -1103,5 +1216,8 @@ Do not re-print the full review report.
 11. **Prefer existing project gates and DB constraints** over new ad-hoc checks and `??` defaults.
 12. **Parallel is mandatory.** Do not collapse specialists into one sequential mega-reviewer. Speed and focus come from one concern per agent.
 13. **Architecture sense-check defaults to silence.** Only surface when verdict is `clear-better-path` or `poor-fit`. Never treat it as a merge blocker. Never demand a rewrite mid-review or in Next Steps. If fine, omit architecture entirely.
-14. **Ask before posting.** After the report, ask which findings to post. Never auto-post. Never post unselected findings.
+14. **Stop after the report.** Do not walk findings. Do not use the Question tool. Post inline comments only in a later turn when the user asks to add/post a number list or a single finding. Never auto-post. Never post unselected findings.
 15. **GitHub comments are inline only.** Each selected finding is a review comment on `path` + `line`. Never use `gh pr comment` or the issue-comments API as a substitute. Skip anything that cannot be inlined.
+16. **Always isolate in a code-only worktree first** (Phase 0 / `/worktree-quick` script). Never review the primary checkout. Never use `/monorepo-worktree`. Never skip yarn install on a fresh create. Never destroy the worktree after the report.
+
+User arguments: $ARGUMENTS

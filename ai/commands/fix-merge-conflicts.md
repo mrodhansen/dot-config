@@ -1,12 +1,14 @@
 ---
-description: Fetches origin/main into the current branch and resolves each conflict one file at a time, keeping this branch's style and behavior. Use when user says "/fix-merge-conflicts", "fix merge conflicts", "resolve conflicts", "merge main", or "pull main and resolve".
+description: Fetches origin/main into the current branch and resolves each conflict one file at a time, keeping this branch's style and behavior. Always creates a code-only git worktree first (same as /worktree-quick; yarn install is mandatory) so /fix-merge-conflicts does not need a prior /worktree-quick. Use when user says "/fix-merge-conflicts", "/fix-merge-conflicts 1234", "fix merge conflicts", "resolve conflicts", "merge main", or "pull main and resolve".
 ---
 
 # /fix-merge-conflicts - Merge Main & Resolve Conflicts
 
 Fetches `origin/main` (or `master`) into the **current feature branch**, then resolves **each conflicted file one at a time**. Keep the style and function of **our** changes (the branch we are working on). Integrate incoming main only when it is required for the result to compile and stay correct.
 
-**Usage:** `/fix-merge-conflicts`
+**Usage:** `/fix-merge-conflicts [PR number | PR URL | branch]`
+
+`/fix-merge-conflicts 1234` is enough — this skill creates the code-only worktree itself. Do **not** require a prior `/worktree-quick`. **Yarn install is mandatory** on every worktree (create, reuse, already-isolated).
 
 User arguments: $ARGUMENTS
 
@@ -24,15 +26,52 @@ User arguments: $ARGUMENTS
 ## Execution Flow
 
 ```
+0. Code-only worktree     -> /worktree-quick script + yarn + session_move (always)
 1. Safety checks          -> repo, branch, dirty tree, mid-merge/rebase
 2. Detect default branch  -> main or master
 3. Fetch + merge main     -> into current branch (not the other way around)
 4. Inventory conflicts    -> list every unmerged path
 5. Resolve file-by-file   -> ours style/function; adapt to main's platform
-6. Verify                 -> no markers; typecheck/tests if available
+6. Verify                 -> no markers / no unmerged paths (not typecheck/tests)
 7. Complete merge commit  -> only the merge commit; do not push
 8. Report                 -> files, decisions, leftover risk
 ```
+
+---
+
+## Phase 0: Code-only worktree (always, before any work)
+
+Work **never** runs in the primary checkout. Isolate first with the same script as `/worktree-quick`, then merge/resolve in that worktree. **Do not** wait for `/worktree-quick`. **Do not** use `/monorepo-worktree`. **Do not** stop after create.
+
+**Yarn is mandatory on every worktree.** Create, reuse, and already-isolated all require `yarn install` in the worktree with exit 0 (10 min timeout). Never skip because `node_modules` exists. Never skip on reuse. If the create script already ran yarn in this turn and you watched it exit 0, that create counts; reuse / already-isolated **must still yarn**.
+
+User arguments: `$ARGUMENTS`
+
+### Parse target
+
+| TARGET | Action |
+|--------|--------|
+| PR / URL | `~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh <n-or-url>` |
+| Branch / ref | `…/quick-worktree.sh <ref>` |
+| Empty | `gh pr view --json number -q .number`. If that fails and cwd is already `*-quick-*`, skip create. Else if current branch is not `main`/`master`, worktree that branch. Else ask for a PR number. |
+
+Remember `PR_NUMBER`. Do **not** merge main into the primary checkout.
+
+### Create or reuse
+
+Do **not** hand-roll `git worktree add`. Skip create only if cwd is already a matching `*-quick-*` worktree. If path already exists: **reuse**. If reusing and **dirty**, do not `reset --hard`.
+
+### Yarn (always)
+
+```bash
+(cd "<path>" && yarn install)
+```
+
+Reuse / already-isolated: **always** run this. Wait for exit 0.
+
+### Move the session, then work
+
+OpenCode: `tools.opencode.session_move` with `directory` = absolute worktree path. Continue this session. Then **immediately** continue. Do **not** destroy the worktree when finished.
 
 ---
 
@@ -206,14 +245,7 @@ rg -n '^(<<<<<<<|=======|>>>>>>>)' .
 
 If any markers or unmerged paths remain, go back to Phase 5. Do not continue.
 
-Then run the **project's** checks when they exist (do not invent a stack):
-
-- typecheck (`yarn nx run-many -t typecheck`, `tsc --noEmit`, etc.)
-- focused tests for touched packages if cheap
-
-If verification fails **because of the merge**, fix it (still preferring our behavior). If it fails for a pre-existing reason unrelated to the merge, report it — do not "clean up" unrelated debt to make the merge look green.
-
-Maximum 3 fix loops. Then report remaining errors.
+Do **not** run typecheck, tests, lint, format, or build here. `/pr` push runs `.husky/pre-push`, which is the CI gate. If the merge would fail CI, the hook will block the push with the failing job's output.
 
 ---
 
@@ -230,7 +262,7 @@ git commit --no-edit
 - Use the default merge message unless it is empty/broken.
 - Do **not** `git add` unrelated untracked files.
 - Do **not** push.
-- Do **not** commit extra "fixup" commits unless verification required a follow-up and the user asked.
+- Do **not** commit extra "fixup" commits.
 - No `Co-Authored-By` trailer. No `--no-verify` unless the user asked.
 
 If `git commit` is rejected by a hook, fix the hook failure (it is often leftover markers or lint) and commit again. Do not `--no-verify`.
@@ -257,9 +289,11 @@ If `git commit` is rejected by a hook, fix the hook failure (it is often leftove
 ### Verification
 | Check | Result |
 |-------|--------|
+| Conflict markers / unmerged paths | [clean / still open] |
+| CI (typecheck/test/build/format) | not run here — pre-push on `/pr` |
 
 ### Residual risk
-[anything not typechecked, lockfile regenerated?, migrations?]
+[lockfile regenerated?, migrations? CI runs on `/pr` push]
 ```
 
 ---
@@ -288,5 +322,6 @@ If `git commit` is rejected by a hook, fix the hook failure (it is often leftove
 6. **Do not push. Do not touch main.**
 7. **Do not commit anything except the merge commit** this command creates.
 8. **Fail hard** when unsure — ask.
+9. **Always isolate in a code-only worktree first** (Phase 0). Never merge main into the primary checkout. **Yarn install is mandatory** on every worktree (create, reuse, already-isolated). Never skip yarn because `node_modules` exists.
 
 User arguments: $ARGUMENTS

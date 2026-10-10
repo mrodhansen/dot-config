@@ -121,6 +121,16 @@ copy_env() {
     echo "  WARN: missing ${src}"
   fi
 }
+
+# Yarn installs a real node_modules in the worktree. Drop a leftover symlink
+# from older setup so install does not write into the primary tree.
+drop_node_modules_symlink() {
+  local dest="${1}/node_modules"
+  if [[ -L "${dest}" ]]; then
+    rm -f "${dest}"
+    echo "  removed leftover node_modules symlink"
+  fi
+}
 echo "Copying env files from ${PRIMARY}..."
 copy_env "${PRIMARY}/.env" "${WT_PATH}/.env"
 copy_env "${PRIMARY}/.env.local" "${WT_PATH}/.env.local"
@@ -304,9 +314,10 @@ CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 echo "  wrote .worktree-slot"
 
-# --- install + prisma + seed ---
+# --- yarn (husky) + prisma + seed ---
 cd "${WT_PATH}"
-echo "yarn install..."
+drop_node_modules_symlink "${WT_PATH}"
+echo "yarn install (husky postinstall wires pre-push)..."
 yarn install
 
 echo "yarn prisma:sync..."
@@ -314,6 +325,12 @@ yarn prisma:sync
 
 echo "yarn nx run database:seed..."
 yarn nx run database:seed
+
+echo "yarn nx run database:seed-du-test-cases (Fannie Mae)..."
+yarn nx run database:seed-du-test-cases
+
+echo "yarn nx run database:seed-lpa-test-cases (Freddie Mac)..."
+yarn nx run database:seed-lpa-test-cases
 
 # --- helper serve script ---
 cat > "${WT_PATH}/serve-worktree.sh" <<EOF
@@ -339,11 +356,12 @@ export SESSION_COOKIE_NAME=${COOKIE}
 export FRONTEND_URL=http://fm.futurewholesale.local:${WEB_PORT}
 # Avoid clashing with primary checkout's node inspector on 9229
 export NODE_OPTIONS="\${NODE_OPTIONS:-} --inspect=${INSPECT_PORT}"
-echo "Starting worktree slot ${SLOT}:"
+echo "Starting worktree slot ${SLOT} (all serve targets):"
 echo "  CRM     http://fm.futurewholesale.local:${WEB_PORT}"
 echo "  API     http://localhost:${API_PORT}"
 echo "  Funnel  http://localhost:${FUNNEL_PORT}/apply/"
-exec yarn nx run-many --target=serve --projects=server-crm,web-crm,web-funnel --parallel=3
+echo "  Worker  redis DB ${SLOT} (worker-crm)"
+exec yarn nx run-many --target=serve
 EOF
 chmod +x "${WT_PATH}/serve-worktree.sh"
 

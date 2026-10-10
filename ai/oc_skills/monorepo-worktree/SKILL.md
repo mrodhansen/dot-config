@@ -1,6 +1,6 @@
 ---
 name: monorepo-worktree
-description: Create or destroy an isolated git worktree of the Future Mortgage monorepo that runs front-end and back-end on alternate ports (own Postgres DB + Redis DB index) so multiple full stacks can run at once. Use when the user runs /monorepo-worktree, /monorepo-worktree destroy|remove|teardown, asks to "spin up a worktree", "run a second stack", "parallel monorepo", "worktree on new ports", or needs a second seeded local environment without stopping the primary checkout. Do NOT use for a code-only PR/branch checkout — that is /worktree-quick.
+description: Create or destroy an isolated git worktree of the Future Mortgage monorepo that runs front-end and back-end on alternate ports (own Postgres DB + Redis DB index) so multiple full stacks can run at once. Remaining args after create are a follow-on coding task — do that immediately in the worktree, do not stop after setup. Use when the user runs /monorepo-worktree, /monorepo-worktree destroy|remove|teardown, asks to "spin up a worktree", "run a second stack", "parallel monorepo", "worktree on new ports", or needs a second seeded local environment without stopping the primary checkout. Do NOT use for a code-only PR/branch checkout — that is /worktree-quick.
 ---
 
 # /monorepo-worktree
@@ -10,13 +10,62 @@ stack (`:3000` / `:3001` / `:4201`).
 
 Code-only PR/branch checkout (no env/DB/seed): `/worktree-quick`.
 
+User arguments: `$ARGUMENTS`
+
 ## Commands
 
 | User says | Action |
 |-----------|--------|
 | `/monorepo-worktree` / `create` / `setup` | Create + seed + report how to serve |
+| `/monorepo-worktree <task>` | Create (defaults) then **immediately do the task** in the worktree |
 | `/monorepo-worktree destroy` / `remove` / `teardown` / `rm` | Stop processes, drop DB, remove worktree |
 | `/monorepo-worktree list` | Show worktrees, slots, ports, what is listening |
+
+## Parse `$ARGUMENTS` — then do not stall
+
+Classify the first tokens, leftover text is the **follow-on task**:
+
+| Pattern | Action |
+|---------|--------|
+| `destroy` / `remove` / `teardown` / `rm` … | Destroy. No create. No coding task. |
+| `list` | List only. |
+| `create` / `setup` (optional), optional slot int, optional git ref, optional name, **rest** | Create. `rest` is the task. |
+| Anything else (multi-word, or a single non-verb token) | Create with defaults, whole string is the task. |
+
+Examples:
+
+- `implement fees page polish` → slot `1`, ref `HEAD`, name slug from task, then implement that
+- `2 feature/foo my-feature fix login OTP` → slot 2, that ref/name, task `fix login OTP`
+- (empty) → create slot 1, report URLs, **stop**
+
+Defaults when unspecified: slot `1`, ref `HEAD`, name `slot-1` **or** a `[a-z0-9-]{1,32}` slug from the task. **Do not ask** for slot/branch/name. Ask only if the chosen slot’s ports are busy (then next free slot ≥1) or a destroy target is ambiguous.
+
+### Model split (Claude Code)
+
+- **You** (session model) parse `$ARGUMENTS` into slot / ref / name / task.
+- **Haiku subagent** (Agent tool, `model: "haiku"`) does the mechanical part: port check, `setup-worktree.sh`, or the whole `destroy` / `list`. Tell it to follow `~/.ai/commands/monorepo-worktree.md` with the parsed slot/ref/name, and to return worktree path, slot, ports/URLs, and exit status (or the last ~50 lines of output on failure). It does not edit code or improvise around a failed step.
+- **You** then start `./serve-worktree.sh` in the background (your session owns that process) and do the follow-on task. On subagent failure, diagnose it yourself; don't blindly re-delegate.
+
+If you **are** that subagent, skip this section and run the steps directly — do not delegate again.
+
+### HARD RULE: setup is a prefix, not the job
+
+If a follow-on task exists, **you (this same session) start it the moment the setup subagent reports `setup-worktree.sh` exited 0.**
+
+After setup succeeds:
+
+1. Start `./serve-worktree.sh` **background only** (`background: true` / do not wait for exit). Never foreground. Coding does not depend on serve.
+2. Optional health check: poll API **≤90s**, then continue even if still warming. Never poll forever.
+3. `cd` to the worktree path. **Immediately implement the task.** All edits / git / yarn / nx happen in `$WT`, not the primary checkout.
+4. One-line URL/path note is fine. Then keep working.
+
+**Forbidden** when a follow-on task exists:
+
+- Ending the turn after create with only URLs, credentials, or a destroy command
+- Asking “want me to start on X?” / “should I continue?”
+- Asking for slot, branch, or name
+- Spawning a subagent for the task and then idling
+- Waiting on `serve-worktree.sh`, webpack compile, or health as if that were the deliverable
 
 ## Default ports (primary = slot 0)
 
@@ -73,15 +122,17 @@ Script will:
 3. Create Postgres DB `dbname_wt{N}`
 4. Rewrite port / DB / Redis / cookie / FRONTEND_URL values
 5. Patch webpack + vite + `web-crm` project.json for env-aware ports (worktree-local)
-6. `yarn install` → `yarn prisma:sync` → `yarn nx run database:seed`
+6. `yarn install` (own `node_modules`; husky postinstall wires pre-push; do not skip yarn; do not symlink from primary) → `yarn prisma:sync` → `yarn nx run database:seed` → `yarn nx run database:seed-du-test-cases` (Fannie Mae) → `yarn nx run database:seed-lpa-test-cases` (Freddie Mac)
 7. Write `serve-worktree.sh` and `.worktree-slot` marker
 
-Then start:
+Then start **in the background** (never wait for this process to exit):
 
 ```bash
 cd ../worktrees/monorepo-slot-1   # or the path printed by the script
 ./serve-worktree.sh
 ```
+
+If a follow-on task exists, start serve in background and **begin the task immediately**. Do not wait for compile/health.
 
 Verify:
 
@@ -95,12 +146,13 @@ curl -s http://localhost:3001/health
 
 ### Agent checklist — create
 
-1. **Ask** (if not specified): slot number (default `1`), base ref/branch (default `HEAD`), optional name.
-2. **Confirm** target slot ports are free (`lsof` / curl).
-3. **Run** `~/.ai/oc_skills/monorepo-worktree/scripts/setup-worktree.sh` (preferred) **or** the manual steps below.
-4. **Start** `./serve-worktree.sh` in the worktree (background is fine).
-5. **Verify** health on the new API port and that primary `:3001` still responds.
-6. **Report** URLs, credentials, path, and destroy command.
+1. **Parse** `$ARGUMENTS` (see above). Do **not** ask for slot/branch/name — default them.
+2. **Confirm** target slot ports are free (`lsof` / curl). If busy, use the next free slot ≥1.
+3. **Run** `~/.ai/oc_skills/monorepo-worktree/scripts/setup-worktree.sh` (preferred) **or** the manual steps below — via the Haiku subagent (steps 2–3; see Model split).
+4. **Start** `./serve-worktree.sh` in the worktree **in the background**. Never foreground. Never wait for exit.
+5. **Health** (optional, ≤90s): new API port + primary `:3001` still responds. On timeout, continue.
+6. **No follow-on task:** report URLs, credentials, path, destroy command, **stop**.
+7. **Follow-on task:** one-line path + URLs, then **immediately implement the task in `$WT`** (this session, not a subagent). Do not stop. Do not ask.
 
 ### Credentials (same as primary after seed)
 
@@ -344,9 +396,12 @@ port: Number(process.env.WEB_FUNNEL_PORT || process.env.PORT || 4201),
 
 ```bash
 cd "$WT"
-yarn install
+# If leftover node_modules symlink from older setup: rm -f node_modules
+yarn install   # own node_modules; husky postinstall — do not skip
 yarn prisma:sync
 yarn nx run database:seed
+yarn nx run database:seed-du-test-cases   # Fannie Mae DU test loans
+yarn nx run database:seed-lpa-test-cases  # Freddie Mac LPA test loans
 ```
 
 ### 7. Serve
@@ -362,7 +417,7 @@ export SESSION_COOKIE_NAME=auth-token-wt1
 export FRONTEND_URL=http://fm.futurewholesale.local:3100
 export NODE_OPTIONS="--inspect=9230"
 
-yarn nx run-many --target=serve --projects=server-crm,web-crm,web-funnel --parallel=3
+yarn nx run-many --target=serve
 ```
 
 ---
@@ -375,6 +430,10 @@ yarn nx run-many --target=serve --projects=server-crm,web-crm,web-funnel --paral
 - Use preview_* tools (subdomain tenancy requires `*.futurewholesale.local`)
 - Run destroy against the primary checkout or ports 3000/3001/4201
 - Drop `dbname` when tearing down a worktree
+- Stop after setup when `$ARGUMENTS` still contains a coding task
+- Run `./serve-worktree.sh` in the foreground, or wait on health/compile before starting a follow-on task
+- Ask for slot/branch/name when defaults work
+- Edit files in the primary checkout after create — work in `$WT`
 
 ## Why each isolation knob
 
@@ -394,7 +453,7 @@ yarn nx run-many --target=serve --projects=server-crm,web-crm,web-funnel --paral
 - Worktree path: `../worktrees/monorepo-slot-1`
 - Both stacks healthy simultaneously: primary `3000/3001/4201` + worktree `3100/3101/4301`
 - API health: `{"status":"healthy","database":"connected",...}`
-- Seed: `yarn nx run database:seed` against `dbname_wt1` succeeds with standard tenants
+- Seed: `yarn nx run database:seed` against `dbname_wt1` succeeds with standard tenants, then Fannie DU (`database:seed-du-test-cases`) and Freddie LPA (`database:seed-lpa-test-cases`) test loans
 - Inspector warning `Starting inspector on localhost:9229 failed` is expected if primary is up — set `NODE_OPTIONS=--inspect=9230` (setup script does this)
 - Empty `apps/*/.env.local` in primary is fine; setup overwrites worktree app env with port wiring
 

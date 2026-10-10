@@ -1,6 +1,6 @@
 ---
 name: fix-shipyard-tests
-description: Fetches recent integration and e2e test failures from Future-Mortgage/shipyard GitHub Actions (https://github.com/Future-Mortgage/shipyard/actions), diagnoses root causes in the monorepo, implements fixes, and opens a new PR that addresses the failing tests. Use when the user runs /fix-shipyard-tests, says "fix shipyard tests", "fix e2e failures", "fix integration test fails", "shipyard CI is red", or asks to fix failing shipyard Actions runs.
+description: Fetches recent integration and e2e test failures from Future-Mortgage/shipyard GitHub Actions (https://github.com/Future-Mortgage/shipyard/actions), diagnoses root causes in the monorepo, implements fixes, and opens a new PR that addresses the failing tests. Always creates a code-only git worktree first (same as /worktree-quick; yarn install is mandatory) so /fix-shipyard-tests does not need a prior /worktree-quick. Use when the user runs /fix-shipyard-tests, says "fix shipyard tests", "fix e2e failures", "fix integration test fails", "shipyard CI is red", or asks to fix failing shipyard Actions runs.
 ---
 
 # /fix-shipyard-tests — Shipyard Integration & E2E Fixer
@@ -9,6 +9,8 @@ Pull recent **integration** and **e2e** failures from [Future-Mortgage/shipyard 
 
 **Usage:** `/fix-shipyard-tests`  
 **Optional args:** a run URL/ID, or `"integration"` / `"e2e"` to scope which job suite to fix.
+
+This skill creates the code-only worktree itself (`quick-worktree.sh new "fix-shipyard-tests"` unless a PR/branch is given). Do **not** require a prior `/worktree-quick`. **Yarn install is mandatory** on every worktree (create, reuse, already-isolated).
 
 ---
 
@@ -55,6 +57,7 @@ If `prepare` / `build_images` / `deploy` failed and tests never ran, report that
 ## Execution Flow
 
 ```
+0. Code-only worktree (yarn mandatory)
 1. Resolve workspace & git safety
 2. Find recent failed Deploy Dev runs (integration / e2e)
 3. Select run(s) and extract failed jobs
@@ -65,6 +68,40 @@ If `prepare` / `build_images` / `deploy` failed and tests never ran, report that
 8. Commit, push, open a new PR
 9. Report summary with run links and PR URL
 ```
+
+---
+
+## Phase 0: Code-only worktree (always, before any work)
+
+Work **never** runs in the primary checkout. Isolate first with the same script as `/worktree-quick`, then continue in that worktree. **Do not** wait for `/worktree-quick`. **Do not** use `/monorepo-worktree` unless the user asked for a runnable second stack. **Do not** stop after create.
+
+**Yarn is mandatory on every worktree.** Create, reuse, and already-isolated all require `yarn install` in the worktree with exit 0 (10 min timeout). Never skip because `node_modules` exists. Never skip on reuse. If the create script already ran yarn in this turn and you watched it exit 0, that create counts; reuse / already-isolated **must still yarn**.
+
+User arguments: `$ARGUMENTS`
+
+### Parse target
+
+`integration` / `e2e` / Actions run URLs/IDs are **not** git refs. They stay as skill args.
+
+| TARGET | Action |
+|--------|--------|
+| PR / URL | `~/.ai/oc_skills/worktree-quick/scripts/quick-worktree.sh <n-or-url>` |
+| Branch / ref | `…/quick-worktree.sh <ref>` |
+| Else (typical) | `…/quick-worktree.sh new "fix-shipyard-tests"` — the `quick/…` branch **is** the fix branch; do not create another branch unless needed |
+
+Skip create only if cwd is already a matching `*-quick-*` worktree. If path already exists: **reuse**. If reusing and **dirty**, do not `reset --hard`.
+
+### Yarn (always)
+
+```bash
+(cd "<path>" && yarn install)
+```
+
+Reuse / already-isolated: **always** run this. Wait for exit 0.
+
+### Move the session, then work
+
+OpenCode: `tools.opencode.session_move` with `directory` = absolute worktree path. Continue this session. Then **immediately** continue. Do **not** destroy the worktree when finished.
 
 ---
 
@@ -447,6 +484,7 @@ gh pr edit --body "..."
 7. Be explicit when verification against real dev was not possible.
 8. Keep the PR description a handoff: run links, root causes, decisions, verification gaps.
 9. If the user passes a specific run URL/ID, use that run; do not silently switch to another.
+10. **Always isolate in a code-only worktree first** (Phase 0). **Yarn install is mandatory** on every worktree (create, reuse, already-isolated). Never skip yarn because `node_modules` exists.
 
 ---
 
@@ -464,3 +502,5 @@ gh pr edit --body "..."
   7. commit + push + gh pr create
   8. Report run links + PR URL
 ```
+
+User arguments: $ARGUMENTS

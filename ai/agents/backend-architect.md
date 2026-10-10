@@ -1,7 +1,6 @@
 ---
 description: Design APIs, build server-side logic, implement databases, and architect scalable backend systems. Specializes in robust, secure, and performant backend services.
 mode: subagent
-permission: "allow"
 color: "#8b5cf6"
 ---
 
