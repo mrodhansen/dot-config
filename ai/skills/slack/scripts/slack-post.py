@@ -156,6 +156,49 @@ def resolve_user(token: str, name_or_id: str) -> str:
     raise SlackError(f"user not found: {name_or_id}", code="USER_NOT_FOUND")
 
 
+def resolve_user_exact(token: str, name_or_id: str) -> str:
+    """DM targets: exact id / @me / handle / real name / display name. No substring guesses."""
+    raw = name_or_id.strip()
+    if raw == "@me":
+        return api(token, "auth.test")["user_id"]
+    if raw.startswith("U") and raw[1:].isalnum() and len(raw) >= 9:
+        return raw
+    want = norm(raw)
+    matches = []
+    for member in paginate_users(token):
+        if member.get("deleted") or member.get("is_bot"):
+            continue
+        profile = member.get("profile") or {}
+        candidates = [
+            member.get("name") or "",
+            member.get("real_name") or "",
+            profile.get("display_name") or "",
+            profile.get("real_name") or "",
+        ]
+        if any(norm(c) == want for c in candidates if c):
+            matches.append(member["id"])
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise SlackError(f"user not found (exact match): {name_or_id}", code="USER_NOT_FOUND")
+    raise SlackError(f"ambiguous user {name_or_id}: {', '.join(matches)}", code="USER_AMBIGUOUS")
+
+
+def cmd_dm(args: argparse.Namespace) -> int:
+    token = load_token()
+    user_id = resolve_user_exact(token, args.to)
+    if args.dry_run:
+        print(f"dry-run: would DM {user_id}: {args.text}")
+        return 0
+    channel = api(token, "conversations.open", {"users": user_id})["channel"]["id"]
+    out = api(token, "chat.postMessage", {"channel": channel, "text": args.text})
+    print(permalink(channel, out["ts"]))
+    print(f"ts={out['ts']}")
+    print(f"channel={channel}")
+    print(f"user={user_id}")
+    return 0
+
+
 def permalink(channel: str, ts: str) -> str:
     return f"https://trygenius.slack.com/archives/{channel}/p{ts.replace('.', '')}"
 
@@ -215,6 +258,12 @@ def main() -> int:
     )
     post.add_argument("--thread-ts", default="", help="Reply in this thread")
     post.set_defaults(func=cmd_post)
+
+    dm = sub.add_parser("dm", help="Direct-message one person (or @me)")
+    dm.add_argument("--to", required=True, help="@me, U… id, or exact handle / real name / display name")
+    dm.add_argument("--text", required=True)
+    dm.add_argument("--dry-run", action="store_true", help="Resolve the target, send nothing")
+    dm.set_defaults(func=cmd_dm)
 
     chans = sub.add_parser("channels", help="List channels")
     chans.set_defaults(func=cmd_list_channels)

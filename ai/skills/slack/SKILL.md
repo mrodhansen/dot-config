@@ -37,6 +37,12 @@ User asks to post / ping / tell Slack. Then load this skill and run the script. 
   --thread-ts 1789776717.232189 \
   --text "Review comments are done and pushed."
 
+# Direct message one person (exact handle / real name / display name / U… / @me; never a substring guess)
+~/.ai/skills/slack/scripts/slack-post.py dm --to "Marcus Henke" \
+  --text "https://github.com/Future-Mortgage/monorepo/pull/2133 approved"
+~/.ai/skills/slack/scripts/slack-post.py dm --to @me --text "note to self"
+~/.ai/skills/slack/scripts/slack-post.py dm --to Ben --text "x" --dry-run   # resolve only
+
 # Resolve names
 ~/.ai/skills/slack/scripts/slack-post.py channels
 ~/.ai/skills/slack/scripts/slack-post.py users

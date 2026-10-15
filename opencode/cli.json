@@ -12,7 +12,8 @@
     "sidebar": "auto",
     "scrollbar": false,
     "thinking": "hide",
-    "new_location": "launch"
+    "new_location": "launch",
+    "verbosity": "low"
   },
   "animations": true,
   "attention": {

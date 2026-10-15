@@ -1,0 +1,22 @@
+shuffle = true
+repeat = "playlist"
+volume = 85
+
+[theme]
+background = "#1e1e1e"
+primary = "#d4d4d4"
+secondary = "#808080"
+title = "#569cd6"
+playing = "#dcdcaa"
+playing_selected = "#ce9178"
+playing_bg = "#1e1e1e"
+highlight = "#d4d4d4"
+highlight_bg = "#264f78"
+error = "#f44747"
+error_bg = "#1e1e1e"
+statusbar = "#ffffff"
+statusbar_progress = "#007acc"
+statusbar_bg = "#007acc"
+cmdline = "#d4d4d4"
+cmdline_bg = "#252526"
+search_match = "#e8ab53"

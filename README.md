@@ -11,6 +11,10 @@ Clone lives at `~/projects/dot-config`. Live paths are symlinks into this repo.
 | `opencode/` | files under `~/.config/opencode/` |
 | `hypr/` | `~/.config/hypr` (Arch) |
 | `zsh/` | `~/.zshrc` |
+| `claude/` | `~/.claude/settings.json` (copy) |
+| `grok/` | `~/.grok/config.toml` (copy) |
+| `git/` | `~/.gitconfig`, `~/.config/git/ignore` (copy) |
+| `lazygit/` `yazi/` `btop/` `bottom/` `gitlogue/` `ncspot/` | `~/.config/<tool>/` (copy) |
 
 ## `ai/`
 
@@ -29,7 +33,7 @@ See `ai/README.md`.
 
 ## `opencode/`
 
-Tracked: `opencode.json`, `cli.json`, `tui.json`, `themes/`, `plugins/`, `package.json`.
+Tracked: `opencode.json`, `cli.json`, `themes/`, `plugins/`.
 
 Not tracked (runtime / secrets): `service.json`, `node_modules/`, sessions, auth.
 
@@ -48,8 +52,6 @@ ln -s ~/projects/dot-config/ai ~/.ai
 ln -s ~/projects/dot-config/wezterm/wezterm.lua ~/.wezterm.lua
 ln -s ~/projects/dot-config/opencode/opencode.json ~/.config/opencode/opencode.json
 ln -s ~/projects/dot-config/opencode/cli.json ~/.config/opencode/cli.json
-ln -s ~/projects/dot-config/opencode/tui.json ~/.config/opencode/tui.json
-ln -s ~/projects/dot-config/opencode/package.json ~/.config/opencode/package.json
 ln -s ~/projects/dot-config/opencode/themes ~/.config/opencode/themes
 ln -s ~/projects/dot-config/hypr ~/.config/hypr
 ln -s ~/projects/dot-config/zsh/.zshrc ~/.zshrc
